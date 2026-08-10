@@ -1,0 +1,87 @@
+// @vitest-environment jsdom
+
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import '@testing-library/jest-dom/vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import type { TimelinePlaybackController } from '../hooks/useTimelinePlayback'
+import type { EclipseSnapshot } from '../types'
+import { MobileDialTimeline } from './MobileDialTimeline'
+
+const snapshot = {
+  date: new Date('2026-08-12T18:17:00.000Z'),
+  circumstances: {
+    begin: { time: new Date('2026-08-12T17:22:00.000Z'), altitude: 16 },
+    maximum: { time: new Date('2026-08-12T18:17:00.000Z'), altitude: 8 },
+    end: { time: new Date('2026-08-12T19:09:00.000Z'), altitude: 0 },
+    peakObscuration: 0.92,
+    kind: 'partial',
+  },
+} as EclipseSnapshot
+
+function playback(): TimelinePlaybackController {
+  return {
+    playing: false,
+    stopPlayback: vi.fn(),
+    togglePlayback: vi.fn(),
+  }
+}
+
+afterEach(() => {
+  cleanup()
+  vi.restoreAllMocks()
+})
+
+describe('MobileDialTimeline', () => {
+  it('exposes local contacts and a keyboard-operable slider', () => {
+    const onMinuteChange = vi.fn()
+    render(
+      <MobileDialTimeline
+        minute={62}
+        snapshot={snapshot}
+        onMinuteChange={onMinuteChange}
+        playback={playback()}
+      />,
+    )
+
+    expect(screen.getByText('20:17')).toBeInTheDocument()
+    expect(screen.getByText('19:22')).toBeInTheDocument()
+    expect(screen.getByText('21:09')).toBeInTheDocument()
+    expect(screen.getByText('Glisser pour changer l’heure')).toBeInTheDocument()
+
+    const slider = screen.getByRole('slider', { name: 'Heure de l’éclipse' })
+    fireEvent.keyDown(slider, { key: 'ArrowRight' })
+    expect(onMinuteChange).toHaveBeenLastCalledWith(63)
+    fireEvent.keyDown(slider, { key: 'ArrowLeft' })
+    expect(onMinuteChange).toHaveBeenLastCalledWith(61)
+  })
+
+  it('delegates playback to the same shared controller as desktop', () => {
+    const controller = playback()
+    render(
+      <MobileDialTimeline
+        minute={62}
+        snapshot={snapshot}
+        onMinuteChange={vi.fn()}
+        playback={controller}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Lire l’éclipse' }))
+    expect(controller.togglePlayback).toHaveBeenCalledOnce()
+  })
+
+  it('removes the dial and playback from the tab order while a menu blocks it', () => {
+    render(
+      <MobileDialTimeline
+        minute={62}
+        snapshot={snapshot}
+        blocked
+        onMinuteChange={vi.fn()}
+        playback={playback()}
+      />,
+    )
+
+    expect(screen.getByRole('slider', { name: 'Heure de l’éclipse', hidden: true })).toHaveAttribute('tabindex', '-1')
+    expect(screen.getByRole('button', { name: 'Lire l’éclipse' })).toBeDisabled()
+  })
+})

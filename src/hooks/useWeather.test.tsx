@@ -1,0 +1,102 @@
+/** @vitest-environment jsdom */
+
+import { act, cleanup, renderHook } from '@testing-library/react'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { useWeather } from './useWeather'
+import type { WeatherDayForecast, WeatherSnapshot } from '../types/weather'
+
+const weatherMocks = vi.hoisted(() => ({
+  fetchWeatherDay: vi.fn(),
+  weatherAtTime: vi.fn(),
+}))
+
+vi.mock('../lib/weather', async (importOriginal) => ({
+  ...await importOriginal<typeof import('../lib/weather')>(),
+  fetchWeatherDay: weatherMocks.fetchWeatherDay,
+  weatherAtTime: weatherMocks.weatherAtTime,
+}))
+
+const DAY: WeatherDayForecast = {
+  latitude: 48.86,
+  longitude: 2.36,
+  elevation: 36,
+  timezone: 'Europe/Paris',
+  utcOffsetSeconds: 7200,
+  fetchedAt: new Date('2026-08-09T18:00:00Z'),
+  hourly: {
+    time: [],
+    temperature_2m: [],
+    apparent_temperature: [],
+    precipitation_probability: [],
+    weather_code: [],
+    cloud_cover: [],
+    visibility: [],
+    wind_speed_10m: [],
+  },
+}
+
+function snapshotAt(date: Date): WeatherSnapshot {
+  return {
+    forecastTime: date,
+    temperatureCelsius: 34,
+    apparentTemperatureCelsius: 33,
+    precipitationProbability: 0,
+    weatherCode: 0,
+    cloudCover: 0,
+    visibilityMeters: 50_000,
+    windSpeedKmh: 8,
+    condition: { label: 'Ciel dégagé', icon: 'clear' },
+  }
+}
+
+describe('useWeather', () => {
+  beforeEach(() => {
+    vi.useFakeTimers()
+    weatherMocks.fetchWeatherDay.mockResolvedValue(DAY)
+    weatherMocks.weatherAtTime.mockImplementation((_forecast: WeatherDayForecast, date: Date) => snapshotAt(date))
+  })
+
+  afterEach(() => {
+    cleanup()
+    vi.clearAllMocks()
+    vi.useRealTimers()
+  })
+
+  it('does not refetch while the timeline moves within the same day', async () => {
+    const location = { lat: 48.8566, lng: 2.3522 }
+    const { result, rerender } = renderHook(
+      ({ selectedTime }) => useWeather(location, selectedTime),
+      { initialProps: { selectedTime: new Date('2026-08-12T18:17:00Z') } },
+    )
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(251)
+    })
+    expect(result.current.status).toBe('ready')
+    expect(weatherMocks.fetchWeatherDay).toHaveBeenCalledTimes(1)
+
+    rerender({ selectedTime: new Date('2026-08-12T18:42:00Z') })
+
+    expect(result.current.snapshot?.forecastTime.toISOString()).toBe('2026-08-12T18:42:00.000Z')
+    expect(weatherMocks.fetchWeatherDay).toHaveBeenCalledTimes(1)
+  })
+
+  it('debounces and reloads when the rounded location changes', async () => {
+    const { rerender } = renderHook(
+      ({ lat }) => useWeather({ lat, lng: 2.3522 }, new Date('2026-08-12T18:17:00Z')),
+      { initialProps: { lat: 48.8566 } },
+    )
+
+    rerender({ lat: 48.8626 })
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(251)
+    })
+
+    expect(weatherMocks.fetchWeatherDay).toHaveBeenCalledTimes(1)
+    expect(weatherMocks.fetchWeatherDay).toHaveBeenCalledWith(
+      { lat: 48.863, lng: 2.352 },
+      expect.any(Date),
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
+    )
+  })
+})

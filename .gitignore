@@ -1,0 +1,36 @@
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+node_modules
+dist
+dist-ssr
+coverage
+.vercel
+.venv*
+data/lidar/
+__pycache__/
+*.py[cod]
+*.local
+.env
+.env.*
+!.env.example
+
+# Local assistant configuration
+.claude/
+
+# Editor directories and files
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
