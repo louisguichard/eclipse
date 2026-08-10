@@ -1,5 +1,7 @@
 # Éclipse 2026 — Où regarder ?
 
+💡 Ce projet a été entièrement vibe-codé, principalement avec Codex (GPT 5.6 Sol). L'ensemble du code et de la documentation a été écrit par IA (à la seule exception de ce paragraphe).
+
 Une application web mobile et desktop pour savoir **où regarder dans le ciel le mercredi 12 août 2026** depuis un point précis en France. Street View occupe la scène principale ; la carte, la simulation astronomique, la météo horaire et la chronologie restent accessibles dans des cartes compactes.
 
 Choisissez une adresse, cliquez sur la carte ou autorisez votre position : l’application cherche le panorama Street View le plus proche, calcule la position apparente du Soleil et de la Lune avec [`astronomy-engine`](https://github.com/cosinekitty/astronomy), puis oriente la caméra vers l’éclipse. Le viseur aide à juger visuellement si un bâtiment, un arbre ou le relief masque cette direction — sans prétendre analyser l’image.
