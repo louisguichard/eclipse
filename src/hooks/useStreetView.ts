@@ -87,7 +87,7 @@ function initialPanoramaState(): PanoramaState {
   }
 }
 
-async function findNearestPanorama(
+export async function findNearestPanorama(
   instances: StreetViewInstances,
   observer: LatLng,
   requestIsCurrent: () => boolean,
@@ -97,38 +97,40 @@ async function findNearestPanorama(
   if (panoramaCache.has(key)) return panoramaCache.get(key)
 
   const { StreetViewPreference, StreetViewSource } = instances.library
-  const sourcePasses = [StreetViewSource.OUTDOOR, StreetViewSource.DEFAULT] as const
+  // Multiple sources are evaluated as an intersection by Google: this keeps
+  // the lookup both outdoors and inside the official Google collection. Do
+  // not fall back to DEFAULT here, because it can reintroduce indoor or
+  // user-contributed panoramas after the outdoor pass fails.
+  const sources = [StreetViewSource.GOOGLE, StreetViewSource.OUTDOOR] as const
 
-  for (const source of sourcePasses) {
-    for (const radiusMeters of STREET_VIEW.searchRadiiMeters) {
+  for (const radiusMeters of STREET_VIEW.searchRadiiMeters) {
+    if (!requestIsCurrent()) return undefined
+    let response: google.maps.StreetViewResponse
+    try {
+      response = await instances.service.getPanorama({
+        location: observer,
+        preference: StreetViewPreference.NEAREST,
+        radius: radiusMeters,
+        sources,
+      })
+    } catch (error) {
       if (!requestIsCurrent()) return undefined
-      let response: google.maps.StreetViewResponse
-      try {
-        response = await instances.service.getPanorama({
-          location: observer,
-          preference: StreetViewPreference.NEAREST,
-          radius: radiusMeters,
-          sources: [source],
-        })
-      } catch (error) {
-        if (!requestIsCurrent()) return undefined
-        if (isNoPanoramaError(error)) continue
-        throw error
-      }
-
-      if (!requestIsCurrent()) return undefined
-      const location = response.data.location
-      const latLng = location?.latLng
-      if (!location?.pano || !latLng) continue
-
-      const result: PanoramaResult = {
-        pano: location.pano,
-        position: { lat: latLng.lat(), lng: latLng.lng() },
-        radiusMeters,
-      }
-      panoramaCache.set(key, result)
-      return result
+      if (isNoPanoramaError(error)) continue
+      throw error
     }
+
+    if (!requestIsCurrent()) return undefined
+    const location = response.data.location
+    const latLng = location?.latLng
+    if (!location?.pano || !latLng) continue
+
+    const result: PanoramaResult = {
+      pano: location.pano,
+      position: { lat: latLng.lat(), lng: latLng.lng() },
+      radiusMeters,
+    }
+    panoramaCache.set(key, result)
+    return result
   }
 
   panoramaCache.set(key, null)
