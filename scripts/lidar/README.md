@@ -13,7 +13,8 @@ Le jeu fourni avec l’application est `paris-2026-max-v1` :
 - Soleil apparent : azimut `283.804835°`, altitude `7.723762°` ;
 - rayon angulaire solaire : `0.26296°` ;
 - calcul : grille Lambert-93 à 2 m ;
-- rendu : tuiles PNG RGBA XYZ de 256 px, zooms 10 à 16 ;
+- rendu : tuiles PNG indexées sur 1 bit, avec transparence, XYZ de 256 px,
+  zooms 10 à 16 ; les tuiles entièrement transparentes sont omises ;
 - sortie : `public/visibility/paris-2026-max-v1/` avec un `manifest.json`.
 
 Le manifeste généré est la référence de publication : il contient l’emprise exacte, le millésime des sources, les paramètres solaires, le nombre de cellules par classe, les zooms disponibles et les mentions d’attribution.
@@ -132,7 +133,8 @@ Pour la génération de référence à 2 m :
 | `mns.f32` | 335,7 Mo (320 Mio) |
 | `paris-visibility-classes.npy` | 43,3 Mo (41 Mio) |
 | cache `data/lidar/` complet | environ 682 Mo sur disque |
-| 1 574 tuiles PNG | 1,23 Mo de contenu (environ 6,2 Mo alloués sur ce système de fichiers) |
+| 940 tuiles PNG visibles | 0,58 Mo de contenu (environ 3,7 Mo alloués sur ce système de fichiers) |
+| tuiles transparentes omises | 634 objets, écritures et octets de stockage évités |
 
 Le volume varie avec la résolution, l’emprise, les zooms et la compression PNG. `data/lidar/` est ignoré par Git ; les tuiles destinées au navigateur vivent dans `public/visibility/`.
 
@@ -197,6 +199,11 @@ https://cdn.example.fr/eclipse/visibility/paris-2026-max-v1/{z}/{x}/{y}.png
 ```
 
 N’ajoutez donc pas `paris-2026-max-v1` dans la variable. Utilisez une URL HTTPS, configurez les en-têtes de cache immuables sur les dossiers versionnés et autorisez les origines nécessaires si le CDN applique une politique CORS. Le manifeste et l’attribution doivent être publiés avec les tuiles.
+
+Pour Cloudflare R2, utilisez le workflow validé dans
+[`scripts/r2/DEPLOYMENT.md`](../r2/DEPLOYMENT.md). Il conserve les secrets dans
+`.env.r2.local`, simule l’opération avant l’envoi, publie en masse via l’API S3
+compatible et vérifie ensuite le manifeste, plusieurs PNG, le cache et CORS.
 
 ## Avant de publier une nouvelle version
 

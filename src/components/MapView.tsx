@@ -71,7 +71,7 @@ export function MapView({ observer, snapshot, active, onLocationChange }: MapVie
   const markerRef = useRef<google.maps.Circle | google.maps.marker.AdvancedMarkerElement | null>(null)
   const rayRef = useRef<google.maps.Polyline | null>(null)
   const arcRef = useRef<google.maps.Polyline | null>(null)
-  const visibilityMapTypeRef = useRef<google.maps.ImageMapType | null>(null)
+  const visibilityMapTypeRef = useRef<google.maps.MapType | null>(null)
   const clickListenerRef = useRef<google.maps.MapsEventListener | null>(null)
   const onLocationChangeRef = useRef(onLocationChange)
   const initialObserverRef = useRef(observer)
@@ -174,7 +174,6 @@ export function MapView({ observer, snapshot, active, onLocationChange }: MapVie
         if (!visibilityMapTypeRef.current) {
           const visibilityLayer = createVisibilityImageMapType(
             {
-              ImageMapType: google.maps.ImageMapType,
               Size: google.maps.Size,
             },
             PARIS_VISIBILITY_MANIFEST,

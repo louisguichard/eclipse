@@ -29,7 +29,7 @@
     "south": 48.81483717314258,
     "west": 2.2234863632715887
   },
-  "generatedAt": "2026-08-10T07:38:34.681658+00:00",
+  "generatedAt": "2026-08-10T11:38:06.745854+00:00",
   "id": "paris-maximum-geometry",
   "license": "https://www.etalab.gouv.fr/licence-ouverte-open-licence/",
   "limitations": [
@@ -54,7 +54,10 @@
     "sourceEditionDate": "2025-06-06"
   },
   "tiles": {
-    "count": 1574,
+    "count": 940,
+    "emptyTileBehavior": "omitted",
+    "emptyTileCount": 634,
+    "format": "png-palette-1bit",
     "maxZoom": 16,
     "minZoom": 10,
     "renderDilationMetersByZoom": {

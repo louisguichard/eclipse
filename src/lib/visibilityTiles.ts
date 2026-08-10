@@ -10,15 +10,14 @@ export type TileCoordinate = {
   y: number
 }
 
-export type VisibilityImageMapTypeConstructors = {
-  ImageMapType: typeof google.maps.ImageMapType
+export type VisibilityMapTypeConstructors = {
   Size: typeof google.maps.Size
 }
 
 export type VisibilityImageMapTypeResult =
   | {
       status: 'ready'
-      mapType: google.maps.ImageMapType
+      mapType: google.maps.MapType
       message: null
     }
   | {
@@ -158,7 +157,7 @@ export function buildVisibilityTileUrl(
 }
 
 export function createVisibilityImageMapType(
-  constructors: VisibilityImageMapTypeConstructors,
+  constructors: VisibilityMapTypeConstructors,
   manifest: VisibilityDatasetManifest,
   opacity: number,
 ): VisibilityImageMapTypeResult {
@@ -172,15 +171,41 @@ export function createVisibilityImageMapType(
   }
 
   const safeOpacity = Math.max(0, Math.min(1, opacity))
-  const mapType = new constructors.ImageMapType({
+  const tileSize = manifest.tiles.tileSize
+  const mapType: google.maps.MapType = {
     alt: manifest.disclaimer,
     name: manifest.label,
     minZoom: manifest.tiles.minZoom,
     maxZoom: manifest.tiles.maxZoom,
-    opacity: safeOpacity,
-    tileSize: new constructors.Size(manifest.tiles.tileSize, manifest.tiles.tileSize),
-    getTileUrl: (coordinate, zoom) => buildVisibilityTileUrl(manifest, coordinate, zoom),
-  })
+    projection: null,
+    radius: 6_378_137,
+    tileSize: new constructors.Size(tileSize, tileSize),
+    getTile: (coordinate, zoom, ownerDocument) => {
+      const tile = ownerDocument.createElement('div')
+      tile.style.width = `${tileSize}px`
+      tile.style.height = `${tileSize}px`
+      tile.style.overflow = 'hidden'
+      tile.style.opacity = String(safeOpacity)
+
+      const url = buildVisibilityTileUrl(manifest, coordinate, zoom)
+      if (!url) return tile
+
+      const image = ownerDocument.createElement('img')
+      image.alt = ''
+      image.ariaHidden = 'true'
+      image.decoding = 'async'
+      image.draggable = false
+      image.width = tileSize
+      image.height = tileSize
+      image.src = url
+      image.addEventListener('error', () => image.remove(), { once: true })
+      tile.append(image)
+      return tile
+    },
+    releaseTile: (tile) => {
+      tile?.replaceChildren()
+    },
+  }
 
   return { status: 'ready', mapType, message: null }
 }

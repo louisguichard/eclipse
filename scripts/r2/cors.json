@@ -1,0 +1,16 @@
+{
+  "rules": [
+    {
+      "allowed": {
+        "origins": [
+          "https://eclipse.louisguichard.fr",
+          "http://localhost:5173"
+        ],
+        "methods": [
+          "GET",
+          "HEAD"
+        ]
+      }
+    }
+  ]
+}

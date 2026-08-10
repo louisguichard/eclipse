@@ -1,8 +1,12 @@
 from __future__ import annotations
 
 import unittest
+from io import BytesIO
+from pathlib import Path
+from tempfile import TemporaryDirectory
 
 import numpy as np
+from PIL import Image
 
 from visibility_model import (
     CLASS_BLOCKED,
@@ -14,7 +18,13 @@ from visibility_model import (
     detect_deck_cells,
     estimate_water_planes,
 )
-from generate_paris_visibility import RENDER_DILATION_CELLS, render_dilation_cells
+from generate_paris_visibility import (
+    CLEAR_TILE_COLOR,
+    RENDER_DILATION_CELLS,
+    encode_visibility_tile,
+    render_dilation_cells,
+    write_visibility_tile,
+)
 
 
 class VisibilityModelTests(unittest.TestCase):
@@ -233,6 +243,39 @@ class RenderDilationTests(unittest.TestCase):
 
     def test_a_finer_grid_needs_more_cells_for_the_same_ground_distance(self) -> None:
         self.assertGreater(render_dilation_cells(11, 0.5), render_dilation_cells(11, 2.0))
+
+
+class TileEncodingTests(unittest.TestCase):
+    def test_visible_tile_is_a_one_bit_palette_png_with_alpha(self) -> None:
+        codes = np.full((256, 256), CLASS_NO_DATA, dtype=np.uint8)
+        codes[12, 34] = CLASS_CLEAR
+
+        payload = encode_visibility_tile(codes)
+
+        self.assertIsNotNone(payload)
+        assert payload is not None
+        self.assertEqual(payload[:8], b"\x89PNG\r\n\x1a\n")
+        # PNG IHDR: byte 24 is the bit depth and byte 25 the colour type.
+        self.assertEqual(payload[24], 1)
+        self.assertEqual(payload[25], 3)  # indexed colour
+        with Image.open(BytesIO(payload)) as image:
+            rgba = image.convert("RGBA")
+            self.assertEqual(rgba.getpixel((34, 12)), CLEAR_TILE_COLOR)
+            self.assertEqual(rgba.getpixel((0, 0)), (0, 0, 0, 0))
+
+    def test_empty_tile_is_omitted_and_removes_a_stale_file(self) -> None:
+        codes = np.full((256, 256), CLASS_NO_DATA, dtype=np.uint8)
+        with TemporaryDirectory() as directory:
+            destination = Path(directory) / "16" / "1" / "2.png"
+            destination.parent.mkdir(parents=True)
+            destination.write_bytes(b"stale")
+
+            self.assertFalse(write_visibility_tile(destination, codes))
+            self.assertFalse(destination.exists())
+
+    def test_tile_encoder_rejects_the_wrong_dimensions(self) -> None:
+        with self.assertRaisesRegex(ValueError, "256 × 256"):
+            encode_visibility_tile(np.zeros((16, 16), dtype=np.uint8))
 
 
 if __name__ == "__main__":

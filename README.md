@@ -196,6 +196,46 @@ Le site peut utiliser [Cloudflare Web Analytics](https://developers.cloudflare.c
 
 L'intégration envoie uniquement le beacon standard, sans événement personnalisé et sans transmettre volontairement les coordonnées de l'URL. Cloudflare indique que Web Analytics n'enregistre pas les chaînes de requête ; les paramètres `lat`, `lng` et `time` ne doivent donc pas apparaître dans ses rapports. Le beacon mesure néanmoins les visites et les performances réelles : mentionnez Cloudflare Web Analytics dans la politique de confidentialité du site. Voir les [questions fréquentes Cloudflare](https://developers.cloudflare.com/web-analytics/faq/) et la [documentation sur la collecte](https://developers.cloudflare.com/web-analytics/data-metrics/data-origin-and-collection/).
 
+## Cloudflare R2 pour les tuiles de visibilité
+
+Les tuiles peuvent être servies par un bucket R2 public plutôt que par Vercel.
+Les identifiants d’écriture R2 sont privés : ne les ajoutez jamais à Vercel et
+ne les préfixez jamais par `VITE_`. Seule l’URL publique des tuiles est placée
+dans `VITE_VISIBILITY_TILE_BASE_URL`.
+
+Le workflow reproductible est fourni dans [`scripts/r2/DEPLOYMENT.md`](scripts/r2/DEPLOYMENT.md) :
+
+```bash
+# Fichier local ignoré par Git
+cp scripts/r2/r2.env.template .env.r2.local
+chmod 600 .env.r2.local
+
+# Vérification, simulation AWS CLI, puis publication
+npm run r2:plan
+npm run r2:publish -- --dry-run
+npm run r2:publish
+
+# Contrôle via le domaine public
+npm run r2:verify -- https://tiles.louisguichard.fr/visibility
+```
+
+Le script réalise un `aws s3 sync` S3-compatible vers le dossier versionné,
+sans `--delete`, et applique un cache immuable d’un an. La politique CORS
+Cloudflare prête à appliquer se trouve dans `scripts/r2/cors.json`.
+
+Attention : Cloudflare Web Analytics fonctionne sans déplacer le DNS, mais ce
+n’est pas le cas d’un domaine personnalisé R2 sur l’offre Free. Actuellement,
+`louisguichard.fr` utilise les nameservers OVH et `eclipse` pointe vers Vercel.
+Le mode CNAME partiel étant réservé aux offres Business/Enterprise, une URL R2
+comme `tiles.louisguichard.fr` exige une migration complète de la zone
+DNS vers Cloudflare. Exportez et comparez auparavant **tous** les enregistrements
+OVH, notamment MX, SPF, DKIM, DMARC, sous-domaines et validations, puis vérifiez
+le site et les e-mails avant de connecter R2. L’URL `r2.dev` convient seulement
+à un test temporaire et est limitée par Cloudflare. Voir les documentations
+[Public buckets](https://developers.cloudflare.com/r2/buckets/public-buckets/),
+[CORS](https://developers.cloudflare.com/r2/buckets/cors/) et
+[S3 API](https://developers.cloudflare.com/r2/get-started/s3/).
+
 ## Architecture
 
 ```text
@@ -240,7 +280,7 @@ Ces valeurs concordent avec la référence [NASA pour Paris](https://science.nas
 
 La carte peut superposer une estimation géométrique indépendante de Google fondée sur le **LiDAR HD IGN**. Elle compare un œil placé 1,7 m au-dessus du MNT au profil du MNS — relief, bâti et végétation — dans la direction du Soleil au maximum central parisien (`20:17:11`, azimut `283,804835°`, altitude apparente `7,723762°`).
 
-La version fournie, `paris-2026-max-v1`, couvre la commune administrative de Paris sur une grille Lambert-93 à 2 m. Elle contient 1 574 tuiles PNG XYZ, zooms 10 à 16, pour environ 6,2 Mo. Les fichiers navigateur sont dans `public/visibility/paris-2026-max-v1/`; le cache de calcul local d’environ 682 Mo est volontairement ignoré par Git.
+La version fournie, `paris-2026-max-v1`, couvre la commune administrative de Paris sur une grille Lambert-93 à 2 m. Elle contient 940 tuiles PNG XYZ indexées sur 1 bit, zooms 10 à 16, pour environ 0,59 Mo de contenu. Les 634 tuiles entièrement transparentes sont omises ; la carte transforme proprement leur réponse absente en transparence. Les fichiers navigateur sont dans `public/visibility/paris-2026-max-v1/`; le cache de calcul local d’environ 682 Mo est volontairement ignoré par Git.
 
 Le modèle calcule toujours quatre classes, mais la carte n’en peint qu’une : le **dégagement probable**, en jaune. « Horizon sensible », « incertain » et « masquage probable » restent transparents, pour que la carte réponde à une seule question au lieu d’imposer une légende à décoder. Les zones jaunes sont par ailleurs **élargies au rendu** — une rue dégagée de 10 m serait invisible au zoom ville — donc leurs contours sont indicatifs et non métriques ; la classification enregistrée, elle, conserve son étendue exacte.
 

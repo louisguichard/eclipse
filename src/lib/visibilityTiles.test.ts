@@ -1,3 +1,5 @@
+// @vitest-environment jsdom
+
 import { describe, expect, it } from 'vitest'
 import type { VisibilityDatasetManifest } from '../types/visibility'
 import {
@@ -123,17 +125,8 @@ describe('ImageMapType factory', () => {
         this.height = height
       }
     }
-    class FakeImageMapType {
-      options: google.maps.ImageMapTypeOptions
-
-      constructor(options: google.maps.ImageMapTypeOptions) {
-        this.options = options
-      }
-    }
-
     const result = createVisibilityImageMapType(
       {
-        ImageMapType: FakeImageMapType as unknown as typeof google.maps.ImageMapType,
         Size: FakeSize as unknown as typeof google.maps.Size,
       },
       READY_MANIFEST,
@@ -142,14 +135,48 @@ describe('ImageMapType factory', () => {
 
     expect(result.status).toBe('ready')
     if (result.status !== 'ready') throw new Error('Expected a ready map type')
-    const fake = result.mapType as unknown as FakeImageMapType
-    expect(fake.options.opacity).toBe(1)
-    expect(fake.options.minZoom).toBe(10)
-    expect(fake.options.maxZoom).toBe(17)
-    expect((fake.options.tileSize as unknown as FakeSize).width).toBe(256)
-    expect(fake.options.getTileUrl?.({ x: 8299, y: 5636 } as google.maps.Point, 14)).toContain(
-      '/14/8299/5636.png',
+    const mapType = result.mapType
+    expect(mapType.minZoom).toBe(10)
+    expect(mapType.maxZoom).toBe(17)
+    expect((mapType.tileSize as unknown as FakeSize).width).toBe(256)
+
+    const tile = mapType.getTile(
+      { x: 8299, y: 5636 } as google.maps.Point,
+      14,
+      document,
+    ) as HTMLDivElement
+    const image = tile.querySelector('img')
+    expect(tile.style.opacity).toBe('1')
+    expect(image?.src).toContain('/14/8299/5636.png')
+  })
+
+  it('turns a missing CDN tile into a transparent tile without a broken image', () => {
+    class FakeSize {
+      width: number
+      height: number
+
+      constructor(width: number, height: number) {
+        this.width = width
+        this.height = height
+      }
+    }
+    const result = createVisibilityImageMapType(
+      { Size: FakeSize as unknown as typeof google.maps.Size },
+      READY_MANIFEST,
+      0.92,
     )
+    if (result.status !== 'ready') throw new Error('Expected a ready map type')
+
+    const tile = result.mapType.getTile(
+      { x: 8299, y: 5636 } as google.maps.Point,
+      14,
+      document,
+    ) as HTMLDivElement
+    const image = tile.querySelector('img')
+    expect(image).not.toBeNull()
+    image?.dispatchEvent(new Event('error'))
+    expect(tile.querySelector('img')).toBeNull()
+    expect(tile.childElementCount).toBe(0)
   })
 
   it('does not create a Google object while data is unavailable', () => {
@@ -159,14 +186,8 @@ describe('ImageMapType factory', () => {
       unavailableReason: 'Pas encore publié.',
       tiles: null,
     }
-    const ImageMapType = class {
-      constructor() {
-        throw new Error('must not instantiate')
-      }
-    }
     const result = createVisibilityImageMapType(
       {
-        ImageMapType: ImageMapType as unknown as typeof google.maps.ImageMapType,
         Size: class {} as unknown as typeof google.maps.Size,
       },
       unavailable,

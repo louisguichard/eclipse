@@ -15,6 +15,7 @@ import math
 import time
 import urllib.parse
 import urllib.request
+from io import BytesIO
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -62,18 +63,19 @@ ATTRIBUTION = (
 )
 
 # The map answers one question — will the Sun be visible from here — so only
-# the robustly clear class is painted. Every other outcome stays transparent
-# rather than adding colours the reader has to decode.
-CLASS_COLORS = np.asarray(
-    [
-        (0, 0, 0, 0),          # no data / outside Paris
-        (255, 201, 51, 235),    # robustly clear
-        (0, 0, 0, 0),           # sensitive
-        (0, 0, 0, 0),           # grazing / uncertain
-        (0, 0, 0, 0),           # blocked or local obstacle
-    ],
-    dtype=np.uint8,
-)
+# the robustly clear class is painted. Every other outcome stays transparent.
+# The published PNG needs only two palette entries and one bit per pixel; the
+# richer geometric classes remain available in the local NumPy classification.
+TRANSPARENT_PALETTE_INDEX = 0
+CLEAR_PALETTE_INDEX = 1
+CLEAR_TILE_COLOR = (255, 201, 51, 235)
+PNG_PALETTE = [
+    0, 0, 0,
+    *CLEAR_TILE_COLOR[:3],
+    *([0] * (256 * 3 - 6)),
+]
+PNG_TRANSPARENCY = bytes((0, CLEAR_TILE_COLOR[3]))
+CLASS_COUNT = CLASS_BLOCKED + 1
 
 # A clear pavement is often only a few cells wide. Painted at that width it is
 # invisible at city zoom, so the class is widened for rendering only; the saved
@@ -113,6 +115,54 @@ def render_dilation_cells(zoom: int, resolution_meters: float) -> int:
 
     footprint = math.ceil(meters_per_pixel(zoom) / (2 * resolution_meters))
     return max(RENDER_DILATION_CELLS, footprint)
+
+
+def encode_visibility_tile(codes: np.ndarray) -> bytes | None:
+    """Return a compact one-bit indexed PNG, or ``None`` for an empty tile.
+
+    Empty tiles are deliberately not published: the custom map type turns a
+    missing image into transparency, while R2 avoids storing and uploading an
+    object that cannot paint a pixel. The dataset directory is versioned, so a
+    missing object remains a stable negative result just like a present PNG.
+    """
+
+    if codes.shape != (256, 256):
+        raise ValueError(f"Expected a 256 × 256 tile, got {codes.shape}")
+    visible = codes == CLASS_CLEAR
+    if not visible.any():
+        return None
+
+    palette_indexes = np.where(
+        visible,
+        CLEAR_PALETTE_INDEX,
+        TRANSPARENT_PALETTE_INDEX,
+    ).astype(np.uint8)
+    image = Image.fromarray(palette_indexes, mode="P")
+    image.putpalette(PNG_PALETTE)
+    image.info["transparency"] = PNG_TRANSPARENCY
+    payload = BytesIO()
+    image.save(
+        payload,
+        format="PNG",
+        bits=1,
+        optimize=True,
+        compress_level=9,
+    )
+    return payload.getvalue()
+
+
+def write_visibility_tile(path: Path, codes: np.ndarray) -> bool:
+    """Write one publishable tile and remove stale output when it is empty."""
+
+    payload = encode_visibility_tile(codes)
+    if payload is None:
+        path.unlink(missing_ok=True)
+        return False
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_suffix(f"{path.suffix}.tmp")
+    temporary.write_bytes(payload)
+    temporary.replace(path)
+    return True
 
 
 @dataclass(frozen=True)
@@ -475,7 +525,7 @@ def classify_paris(
     classes[~rasterize_paris_mask(feature, grid)] = CLASS_NO_DATA
     class_path = data_dir / "paris-visibility-classes.npy"
     np.save(class_path, classes)
-    counts = np.bincount(classes.ravel(), minlength=len(CLASS_COLORS))
+    counts = np.bincount(classes.ravel(), minlength=CLASS_COUNT)
     write_json(
         data_dir / "classification.json",
         {
@@ -546,6 +596,7 @@ def generate_tiles(
     coverage = grid_wgs84_bounds(grid)
     destination.mkdir(parents=True, exist_ok=True)
     tile_count = 0
+    empty_tile_count = 0
     dilation_by_zoom: dict[int, int] = {}
 
     for zoom in range(min_zoom, max_zoom + 1):
@@ -589,16 +640,11 @@ def generate_tiles(
                 )
                 codes = np.zeros((256, 256), dtype=np.uint8)
                 codes[valid] = classes[rows[valid], columns[valid]]
-                rgba = CLASS_COLORS[codes]
                 tile_path = destination / str(zoom) / str(tile_x) / f"{tile_y}.png"
-                tile_path.parent.mkdir(parents=True, exist_ok=True)
-                Image.fromarray(rgba, mode="RGBA").save(
-                    tile_path,
-                    format="PNG",
-                    optimize=True,
-                    compress_level=9,
-                )
-                tile_count += 1
+                if write_visibility_tile(tile_path, codes):
+                    tile_count += 1
+                else:
+                    empty_tile_count += 1
         print(f"Tuiles zoom {zoom} terminées", flush=True)
 
     classification = json.loads(
@@ -628,6 +674,9 @@ def generate_tiles(
             "minZoom": min_zoom,
             "maxZoom": max_zoom,
             "count": tile_count,
+            "emptyTileCount": empty_tile_count,
+            "format": "png-palette-1bit",
+            "emptyTileBehavior": "omitted",
             "renderDilationMetersByZoom": {
                 str(zoom): round(cells * grid.resolution_meters, 1)
                 for zoom, cells in sorted(dilation_by_zoom.items())
@@ -651,7 +700,11 @@ def generate_tiles(
         ],
     }
     write_json(destination / "manifest.json", manifest)
-    print(f"{tile_count} tuiles écrites dans {destination}", flush=True)
+    print(
+        f"{tile_count} tuiles écrites, {empty_tile_count} tuiles vides omises "
+        f"dans {destination}",
+        flush=True,
+    )
 
 
 def parse_arguments() -> argparse.Namespace:
