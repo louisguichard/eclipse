@@ -132,7 +132,7 @@ Pour la génération de référence à 2 m :
 | `mns.f32` | 335,7 Mo (320 Mio) |
 | `paris-visibility-classes.npy` | 43,3 Mo (41 Mio) |
 | cache `data/lidar/` complet | environ 682 Mo sur disque |
-| 1 561 tuiles + manifeste | environ 6,4 Mo |
+| 1 574 tuiles PNG | 1,23 Mo de contenu (environ 6,2 Mo alloués sur ce système de fichiers) |
 
 Le volume varie avec la résolution, l’emprise, les zooms et la compression PNG. `data/lidar/` est ignoré par Git ; les tuiles destinées au navigateur vivent dans `public/visibility/`.
 

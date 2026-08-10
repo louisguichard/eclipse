@@ -25,6 +25,7 @@ export function LegalModal({ type, onClose }: LegalModalProps) {
             <p>L’application traite la position choisie dans votre navigateur pour calculer la direction du Soleil. Elle ne possède ni compte utilisateur, ni serveur applicatif, ni base de données.</p>
             <p>Votre position précise n’est demandée qu’après action sur « Ma position ». Elle n’est transmise à Google Maps que pour afficher la carte, rechercher un panorama ou effectuer une recherche de lieu. Le lien de partage ne contient les coordonnées qu’après votre action explicite.</p>
             <p>Les coordonnées arrondies sont également envoyées à Open-Meteo pour obtenir la prévision horaire. Google peut traiter des données conformément à sa <a href="https://policies.google.com/privacy" target="_blank" rel="noreferrer">politique de confidentialité</a>. Aucun contenu Street View n’est analysé ni mis en cache par cette application.</p>
+            <p>Lorsque la mesure d’audience est activée, Cloudflare Web Analytics reçoit son beacon standard de visite et de performance. Cette application ne lui envoie aucun événement personnalisé ; Cloudflare indique ne pas journaliser les paramètres de l’URL. Consultez la <a href="https://www.cloudflare.com/privacypolicy/" target="_blank" rel="noreferrer">politique de confidentialité Cloudflare</a>.</p>
           </>
         ) : (
           <>

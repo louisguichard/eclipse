@@ -52,11 +52,14 @@ Renseignez ensuite `.env.local` :
 VITE_GOOGLE_MAPS_API_KEY=votre_cle_navigateur_google_maps
 VITE_GOOGLE_MAP_ID=votre_map_id_optionnel
 VITE_VISIBILITY_TILE_BASE_URL=https://cdn.example.fr/eclipse/visibility
+VITE_CLOUDFLARE_WEB_ANALYTICS_TOKEN=votre_token_de_site_optionnel
 ```
 
 `VITE_GOOGLE_MAP_ID` est facultatif. Sans Map ID, l’application utilise le rendu cartographique standard. Avec un Map ID de type JavaScript, vous pouvez administrer un style dans Google Cloud sans changer le code.
 
 `VITE_VISIBILITY_TILE_BASE_URL` est également facultatif. Laissez-le vide pour utiliser les tuiles incluses sous `/visibility/paris-2026-max-v1/`. Pour un CDN, indiquez le dossier parent de `paris-2026-max-v1`, sans ajouter le nom de version à la variable. Cette URL n’est pas un secret.
+
+`VITE_CLOUDFLARE_WEB_ANALYTICS_TOKEN` est facultatif et public. Lorsqu'il est renseigné, le beacon officiel Cloudflare Web Analytics est chargé uniquement dans le build de production. Il n'est jamais chargé avec `npm run dev`, ni lorsqu'aucun token n'est configuré.
 
 Les variables `VITE_*` sont injectées dans le bundle client : **la clé est visible dans le navigateur par conception**. Sa protection repose sur les restrictions de domaine et d’API, pas sur son camouflage. Ne commitez jamais `.env.local` ni une vraie clé dans `.env.example`.
 
@@ -162,7 +165,7 @@ Pour reproduire exactement une installation CI, utilisez `npm ci` plutôt que `n
 1. importez le dépôt dans Vercel ;
 2. si le dépôt contient plusieurs projets, définissez **Root Directory** sur `eclipse-2026` ;
 3. gardez le preset **Vite**, la commande `npm run build` et le dossier de sortie `dist` ;
-4. ajoutez `VITE_GOOGLE_MAPS_API_KEY` et, si utilisés, `VITE_GOOGLE_MAP_ID` et `VITE_VISIBILITY_TILE_BASE_URL` dans **Project Settings → Environment Variables** ;
+4. ajoutez `VITE_GOOGLE_MAPS_API_KEY` et, si utilisés, `VITE_GOOGLE_MAP_ID`, `VITE_VISIBILITY_TILE_BASE_URL` et `VITE_CLOUDFLARE_WEB_ANALYTICS_TOKEN` dans **Project Settings → Environment Variables** ;
 5. choisissez explicitement les environnements Production/Preview/Development voulus ;
 6. déployez, puis ajoutez le domaine final aux restrictions HTTP de la clé Google ;
 7. redéployez après toute modification d’une variable `VITE_*`, car elle est incorporée à la compilation.
@@ -178,6 +181,18 @@ vercel --prod
 ```
 
 N’insérez pas la clé en argument de commande ni dans l’historique du shell ; configurez-la dans le tableau de bord ou avec `vercel env add`.
+
+## Cloudflare Web Analytics facultatif
+
+Le site peut utiliser [Cloudflare Web Analytics](https://developers.cloudflare.com/web-analytics/about/) tout en restant hébergé sur Vercel et sans déplacer son DNS chez Cloudflare.
+
+1. créez un compte Cloudflare, puis ouvrez **Analytics & Logs → Web Analytics** ;
+2. sélectionnez **Add a site** et saisissez `eclipse.louisguichard.fr` ;
+3. dans **Manage site**, copiez uniquement la valeur `token` du snippet proposé ;
+4. dans Vercel, ajoutez cette valeur sous `VITE_CLOUDFLARE_WEB_ANALYTICS_TOKEN`, pour l'environnement **Production** seulement ;
+5. redéployez le site, ouvrez-le sans bloqueur de contenu, puis vérifiez après quelques minutes que des visites apparaissent dans Cloudflare.
+
+L'intégration envoie uniquement le beacon standard, sans événement personnalisé et sans transmettre volontairement les coordonnées de l'URL. Cloudflare indique que Web Analytics n'enregistre pas les chaînes de requête ; les paramètres `lat`, `lng` et `time` ne doivent donc pas apparaître dans ses rapports. Le beacon mesure néanmoins les visites et les performances réelles : mentionnez Cloudflare Web Analytics dans la politique de confidentialité du site. Voir les [questions fréquentes Cloudflare](https://developers.cloudflare.com/web-analytics/faq/) et la [documentation sur la collecte](https://developers.cloudflare.com/web-analytics/data-metrics/data-origin-and-collection/).
 
 ## Architecture
 
