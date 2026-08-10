@@ -16,6 +16,7 @@ describe('WeatherCard', () => {
       status: 'ready',
       error: null,
       refresh,
+      timeZone: 'Europe/Paris',
       snapshot: {
         forecastTime: new Date('2026-08-12T18:00:00Z'),
         temperatureCelsius: 34.2,
@@ -38,7 +39,7 @@ describe('WeatherCard', () => {
   })
 
   it('shows a compact error instead of a blank card', () => {
-    render(<WeatherCard weather={{ status: 'error', snapshot: null, error: 'Météo indisponible', refresh }} />)
+    render(<WeatherCard weather={{ status: 'error', snapshot: null, timeZone: null, error: 'Météo indisponible', refresh }} />)
     expect(screen.getByText('Météo indisponible')).toBeInTheDocument()
   })
 })

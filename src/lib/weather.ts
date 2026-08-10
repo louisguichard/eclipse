@@ -53,7 +53,7 @@ function readHourlyData(value: unknown): WeatherHourlyData {
     throw new WeatherForecastError('invalid-response', 'La réponse météo ne contient pas de série horaire valide.')
   }
   const time = value.time
-  if (!Array.isArray(time) || !time.every((item) => typeof item === 'string')) {
+  if (!Array.isArray(time) || !time.every((item) => typeof item === 'number' && Number.isFinite(item))) {
     throw new WeatherForecastError('invalid-response', 'La réponse météo ne contient pas de série horaire valide.')
   }
 
@@ -103,15 +103,8 @@ export function parseOpenMeteoResponse(value: unknown, fetchedAt = new Date()): 
   }
 }
 
-function dateKeyInParis(date: Date): string {
-  const parts = new Intl.DateTimeFormat('fr-CA', {
-    timeZone: WEATHER.timezone,
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  }).formatToParts(date)
-  const get = (type: Intl.DateTimeFormatPartTypes) => parts.find((part) => part.type === type)?.value ?? ''
-  return `${get('year')}-${get('month')}-${get('day')}`
+function utcDateKey(date: Date, dayOffset = 0): string {
+  return new Date(date.getTime() + dayOffset * 86_400_000).toISOString().slice(0, 10)
 }
 
 function roundedCoordinate(value: number): number {
@@ -135,21 +128,23 @@ export function buildWeatherForecastUrl(
   endpoint: string = WEATHER.endpoint,
 ): string {
   const normalized = normalizedLocation(location)
-  const dateKey = dateKeyInParis(date)
   const url = new URL(endpoint)
   url.searchParams.set('latitude', String(normalized.lat))
   url.searchParams.set('longitude', String(normalized.lng))
   url.searchParams.set('hourly', WEATHER_HOURLY_VARIABLES.join(','))
   url.searchParams.set('timezone', WEATHER.timezone)
-  url.searchParams.set('start_date', dateKey)
-  url.searchParams.set('end_date', dateKey)
+  url.searchParams.set('timeformat', WEATHER.timeformat)
+  // These dates are interpreted in the location's time zone, which is not
+  // known until the response arrives. This envelope covers UTC-12 to UTC+14.
+  url.searchParams.set('start_date', utcDateKey(date, -1))
+  url.searchParams.set('end_date', utcDateKey(date, 1))
   url.searchParams.set('cell_selection', 'land')
   return url.toString()
 }
 
 function cacheKey(location: LatLng, date: Date): string {
   const normalized = normalizedLocation(location)
-  return `${normalized.lat},${normalized.lng}:${dateKeyInParis(date)}`
+  return `${normalized.lat},${normalized.lng}:${utcDateKey(date)}`
 }
 
 function errorFromStatus(status: number, reason?: string): WeatherForecastError {
@@ -212,11 +207,6 @@ export async function fetchWeatherDay(
   }
 }
 
-function parseLocalForecastTime(localTime: string, utcOffsetSeconds: number): number {
-  const pseudoUtc = Date.parse(`${localTime}:00Z`)
-  return pseudoUtc - utcOffsetSeconds * 1_000
-}
-
 function valueAt(values: Array<number | null>, index: number): number | null {
   const value = values[index]
   return typeof value === 'number' && Number.isFinite(value) ? value : null
@@ -245,7 +235,7 @@ export function weatherAtTime(forecast: WeatherDayForecast, date: Date): Weather
   let nearestDifference = Number.POSITIVE_INFINITY
 
   forecast.hourly.time.forEach((time, index) => {
-    const timestamp = parseLocalForecastTime(time, forecast.utcOffsetSeconds)
+    const timestamp = time * 1_000
     const difference = Math.abs(timestamp - target)
     if (Number.isFinite(timestamp) && difference < nearestDifference) {
       nearestIndex = index
@@ -256,7 +246,7 @@ export function weatherAtTime(forecast: WeatherDayForecast, date: Date): Weather
   if (nearestIndex < 0 || nearestDifference > 90 * 60 * 1_000) return null
   const weatherCode = valueAt(forecast.hourly.weather_code, nearestIndex)
   return {
-    forecastTime: new Date(parseLocalForecastTime(forecast.hourly.time[nearestIndex], forecast.utcOffsetSeconds)),
+    forecastTime: new Date(forecast.hourly.time[nearestIndex] * 1_000),
     temperatureCelsius: valueAt(forecast.hourly.temperature_2m, nearestIndex),
     apparentTemperatureCelsius: valueAt(forecast.hourly.apparent_temperature, nearestIndex),
     precipitationProbability: valueAt(forecast.hourly.precipitation_probability, nearestIndex),

@@ -2,12 +2,13 @@ import { useMemo } from 'react'
 import { Pause, Play } from 'lucide-react'
 import type { TimelinePlaybackController } from '../hooks/useTimelinePlayback'
 import { timelineMinuteFromDate } from '../lib/astronomy'
-import { formatParisTime, formatPercent } from '../lib/format'
+import { formatLocalTime, formatPercent } from '../lib/format'
 import type { EclipseSnapshot } from '../types'
 
 type TimelineProps = {
   minute: number
   snapshot: EclipseSnapshot
+  timeZone?: string | null
   onMinuteChange: (minute: number) => void
   playback: TimelinePlaybackController
 }
@@ -16,7 +17,13 @@ function clamp(value: number, minimum: number, maximum: number): number {
   return Math.max(minimum, Math.min(maximum, value))
 }
 
-export function Timeline({ minute, snapshot, onMinuteChange, playback }: TimelineProps) {
+export function Timeline({
+  minute,
+  snapshot,
+  timeZone = null,
+  onMinuteChange,
+  playback,
+}: TimelineProps) {
   const contacts = useMemo(() => {
     const begin = timelineMinuteFromDate(snapshot.circumstances.begin.time)
     const maximum = timelineMinuteFromDate(snapshot.circumstances.maximum.time)
@@ -28,6 +35,17 @@ export function Timeline({ minute, snapshot, onMinuteChange, playback }: Timelin
       maximumPosition: ((maximum - begin) / Math.max(end - begin, 1)) * 100,
     }
   }, [snapshot.circumstances])
+
+  if (!snapshot.circumstances.visible) {
+    return (
+      <section className="timeline timeline--unavailable" aria-label="Chronologie de l’éclipse">
+        <div className="timeline__unavailable" role="status">
+          <strong>Éclipse non visible depuis ce lieu</strong>
+          <span>Essayez une adresse en Europe, en Afrique du Nord ou en Amérique du Nord.</span>
+        </div>
+      </section>
+    )
+  }
 
   const displayedMinute = clamp(minute, contacts.begin, contacts.end)
   const progress = ((displayedMinute - contacts.begin) / Math.max(contacts.end - contacts.begin, 1)) * 100
@@ -44,7 +62,7 @@ export function Timeline({ minute, snapshot, onMinuteChange, playback }: Timelin
         >
           {playing ? <Pause size={18} fill="currentColor" /> : <Play size={18} fill="currentColor" />}
         </button>
-        <strong>{formatParisTime(snapshot.date)}</strong>
+        <strong>{formatLocalTime(snapshot.date, timeZone)}</strong>
       </div>
 
       <div className="timeline__track-wrap">
@@ -62,12 +80,12 @@ export function Timeline({ minute, snapshot, onMinuteChange, playback }: Timelin
             onMinuteChange(Math.round(Number(event.target.value)))
           }}
           aria-label="Heure simulée"
-          aria-valuetext={`${formatParisTime(snapshot.date)}, ${snapshot.phaseLabel}, ${formatPercent(snapshot.obscuration)} occulté`}
+          aria-valuetext={`${formatLocalTime(snapshot.date, timeZone)}, ${snapshot.phaseLabel}, ${formatPercent(snapshot.obscuration)} occulté`}
           style={{ '--progress': `${progress}%` } as React.CSSProperties}
         />
 
         <span className="timeline-anchor timeline-anchor--start">
-          {formatParisTime(snapshot.circumstances.begin.time)}
+          {formatLocalTime(snapshot.circumstances.begin.time, timeZone)}
         </span>
         <button
           type="button"
@@ -77,12 +95,12 @@ export function Timeline({ minute, snapshot, onMinuteChange, playback }: Timelin
             stopPlayback()
             onMinuteChange(contacts.maximum)
           }}
-          aria-label={`Aller au maximum, ${formatParisTime(snapshot.circumstances.maximum.time)}`}
+          aria-label={`Aller au maximum, ${formatLocalTime(snapshot.circumstances.maximum.time, timeZone)}`}
         >
-          <span>max</span> {formatParisTime(snapshot.circumstances.maximum.time)}
+          <span>max</span> {formatLocalTime(snapshot.circumstances.maximum.time, timeZone)}
         </button>
         <span className="timeline-anchor timeline-anchor--end">
-          {formatParisTime(snapshot.circumstances.end.time)}
+          {formatLocalTime(snapshot.circumstances.end.time, timeZone)}
         </span>
       </div>
     </section>

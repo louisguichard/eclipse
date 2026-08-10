@@ -92,6 +92,23 @@ function longitudeRanges(bounds: GeographicBounds): Array<[number, number]> {
     : [[bounds.west, 180], [-180, bounds.east]]
 }
 
+export function geographicBoundsIntersect(
+  first: GeographicBounds,
+  second: GeographicBounds,
+): boolean {
+  const latitudeIntersects =
+    first.north >= second.south && first.south <= second.north
+  if (!latitudeIntersects) return false
+
+  const firstLongitudeRanges = longitudeRanges(first)
+  const secondLongitudeRanges = longitudeRanges(second)
+  return firstLongitudeRanges.some(([firstWest, firstEast]) =>
+    secondLongitudeRanges.some(([secondWest, secondEast]) =>
+      firstEast >= secondWest && firstWest <= secondEast,
+    ),
+  )
+}
+
 export function pointInGeographicBounds(
   point: { lat: number; lng: number },
   bounds: GeographicBounds,
@@ -99,6 +116,52 @@ export function pointInGeographicBounds(
   const latitudeInside = point.lat >= bounds.south && point.lat <= bounds.north
   if (!latitudeInside) return false
   return longitudeRanges(bounds).some(([west, east]) => point.lng >= west && point.lng <= east)
+}
+
+/**
+ * Returns ready datasets in catalogue order (fine to coarse) that can paint
+ * either the observation point or the visible map. Passing a zoom avoids
+ * mounting a pyramid while Google cannot request any of its levels.
+ */
+export function visibilityDatasetsForView(
+  manifests: readonly VisibilityDatasetManifest[],
+  point: { lat: number; lng: number },
+  viewport: GeographicBounds | null,
+  zoom?: number,
+): VisibilityDatasetManifest[] {
+  return manifests.filter((manifest) => {
+    if (visibilityManifestIssue(manifest) || !manifest.tiles) return false
+    if (
+      zoom !== undefined
+      && (zoom < manifest.tiles.minZoom || zoom > manifest.tiles.maxZoom)
+    ) {
+      return false
+    }
+
+    return pointInGeographicBounds(point, manifest.coverage)
+      || (viewport !== null && geographicBoundsIntersect(viewport, manifest.coverage))
+  })
+}
+
+/** Fine-to-coarse catalogue order makes the first match the best local layer. */
+export function preferredVisibilityDatasetAtPoint(
+  manifests: readonly VisibilityDatasetManifest[],
+  point: { lat: number; lng: number },
+): VisibilityDatasetManifest | null {
+  return manifests.find((manifest) =>
+    !visibilityManifestIssue(manifest)
+    && pointInGeographicBounds(point, manifest.coverage),
+  ) ?? null
+}
+
+/** Includes unpublished entries so the UI can distinguish pending data from out-of-area. */
+export function knownVisibilityCoverageAtPoint(
+  manifests: readonly VisibilityDatasetManifest[],
+  point: { lat: number; lng: number },
+): VisibilityDatasetManifest | null {
+  return manifests.find((manifest) =>
+    pointInGeographicBounds(point, manifest.coverage),
+  ) ?? null
 }
 
 export function tileIntersectsBounds(

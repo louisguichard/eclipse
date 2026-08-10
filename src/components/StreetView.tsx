@@ -14,7 +14,7 @@ import {
   azimuthToCompass,
   formatDegrees,
   formatDistance,
-  formatParisDateTime,
+  formatLocalDateTime,
   formatPercent,
 } from '../lib/format'
 import {
@@ -33,6 +33,7 @@ import { TwilightFilter } from './TwilightFilter'
 export type StreetViewProps = {
   observer: ObserverLocation
   snapshot: EclipseSnapshot
+  timeZone?: string | null
   active: boolean
   expanded: boolean
   cloudCover?: number | null
@@ -236,6 +237,7 @@ function StateMessage({ state }: { state: PanoramaState }) {
 export function StreetView({
   observer,
   snapshot,
+  timeZone = null,
   active,
   expanded,
   cloudCover = null,
@@ -266,10 +268,12 @@ export function StreetView({
     [camera, snapshot, viewportSize],
   )
   const twilight = useMemo(() => gradeTwilight(snapshot), [snapshot])
-  const eclipseVeilOpacity = Math.min(
-    0.62,
-    (snapshot.obscuration / Math.max(snapshot.circumstances.peakObscuration, 0.0001)) * 0.62,
-  )
+  const eclipseVeilOpacity = snapshot.circumstances.visible
+    ? Math.min(
+        0.62,
+        (snapshot.obscuration / Math.max(snapshot.circumstances.peakObscuration, 0.0001)) * 0.62,
+      )
+    : 0
   const sunPosition = demo ? { x: 0.5, y: 0.5 } : projectedSun.point
   const sunDiameterPixels = Math.max(
     STREET_VIEW.sunMinimumPixels,
@@ -309,7 +313,7 @@ export function StreetView({
 
         {(ready || demo) && <TwilightFilter grade={twilight} sunPosition={sunPosition} />}
 
-        {(ready || demo) && (
+        {(ready || demo) && snapshot.circumstances.visible && (
           <>
             <div
               className="mobile-eclipse-veil"
@@ -320,7 +324,7 @@ export function StreetView({
           </>
         )}
 
-        {(ready || demo) && (
+        {(ready || demo) && snapshot.circumstances.visible && (
           <EclipseOverlay
             snapshot={snapshot}
             expanded={expanded}
@@ -332,7 +336,7 @@ export function StreetView({
           />
         )}
 
-        {ready && projectedSun.edgeCue && (
+        {ready && snapshot.circumstances.visible && projectedSun.edgeCue && (
           <button
             type="button"
             onClick={recenter}
@@ -356,6 +360,12 @@ export function StreetView({
           <div className={`scene-note ${confidence.className}`}>
             <MapPin aria-hidden="true" size={12} />
             {confidence.label}
+          </div>
+        )}
+
+        {(ready || demo) && !snapshot.circumstances.visible && (
+          <div className="scene-note scene-note--warn scene-note--eclipse" role="status">
+            Éclipse non visible depuis ce lieu
           </div>
         )}
 
@@ -398,7 +408,7 @@ export function StreetView({
           <button
             type="button"
             onClick={recenter}
-            disabled={!ready}
+            disabled={!ready || !snapshot.circumstances.visible}
             aria-label="Recentrer la vue sur le Soleil"
             title="Recentrer sur le Soleil"
             className={`scene-control ${centered ? '' : 'scene-control--alert'}`}
@@ -417,7 +427,7 @@ export function StreetView({
             <dt className="text-cyan-300">ÉCRAN</dt><dd>x {(projectedSun.point.x * 100).toFixed(1)} % · y {(projectedSun.point.y * 100).toFixed(1)} % · {projectedSun.point.visible ? 'visible' : 'hors champ'} · {centered ? 'centré' : 'déplacé'}</dd>
             <dt className="text-cyan-300">ÉCLIPSE</dt><dd>{formatPercent(snapshot.obscuration, 2)}</dd>
             <dt className="text-cyan-300">UTC</dt><dd>{snapshot.date.toISOString()}</dd>
-            <dt className="text-cyan-300">PARIS</dt><dd>{formatParisDateTime(snapshot.date)}</dd>
+            <dt className="text-cyan-300">LOCAL</dt><dd>{formatLocalDateTime(snapshot.date, timeZone)} · {timeZone}</dd>
           </dl>
         )}
       </div>

@@ -90,4 +90,32 @@ describe('useObserverLocation URL synchronization', () => {
     expect(new URLSearchParams(window.location.search).get('time')).toBe('63')
     expect(new URL(result.current.shareUrl()).searchParams.get('time')).toBe('63')
   })
+
+  it('preserves negative timeline minutes in shared North American links', () => {
+    window.history.replaceState(
+      null,
+      '',
+      '/?lat=61.218100&lng=-149.900300&time=-54',
+    )
+
+    const { result } = renderHook(() => useObserverLocation())
+
+    expect(result.current.minute).toBe(-54)
+    expect(new URL(result.current.shareUrl()).searchParams.get('time')).toBe('-54')
+  })
+
+  it('jumps to the observable local maximum after a deliberate location change', () => {
+    const { result } = renderHook(() => useObserverLocation())
+
+    act(() => {
+      result.current.setLocation({
+        lat: 61.2181,
+        lng: -149.9003,
+        label: 'Anchorage',
+        source: 'search',
+      })
+    })
+
+    expect(result.current.minute).toBe(-53)
+  })
 })

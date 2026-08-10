@@ -16,7 +16,11 @@ const OPEN_METEO_RESPONSE = {
   timezone: 'Europe/Paris',
   utc_offset_seconds: 7200,
   hourly: {
-    time: ['2026-08-12T19:00', '2026-08-12T20:00', '2026-08-12T21:00'],
+    time: [
+      Date.parse('2026-08-12T17:00:00Z') / 1_000,
+      Date.parse('2026-08-12T18:00:00Z') / 1_000,
+      Date.parse('2026-08-12T19:00:00Z') / 1_000,
+    ],
     temperature_2m: [35, 34.2, 32.6],
     apparent_temperature: [33.7, 32.7, 31.3],
     precipitation_probability: [0, 0, 5],
@@ -33,7 +37,7 @@ afterEach(() => {
 })
 
 describe('buildWeatherForecastUrl', () => {
-  it('requests one Paris-local day with only the useful hourly fields', () => {
+  it('requests a timezone-safe date envelope with only the useful hourly fields', () => {
     const url = new URL(buildWeatherForecastUrl(
       { lat: 48.856_61, lng: 2.352_21 },
       new Date('2026-08-12T18:17:00.000Z'),
@@ -42,9 +46,10 @@ describe('buildWeatherForecastUrl', () => {
     expect(url.origin + url.pathname).toBe('https://api.open-meteo.com/v1/forecast')
     expect(url.searchParams.get('latitude')).toBe('48.857')
     expect(url.searchParams.get('longitude')).toBe('2.352')
-    expect(url.searchParams.get('timezone')).toBe('Europe/Paris')
-    expect(url.searchParams.get('start_date')).toBe('2026-08-12')
-    expect(url.searchParams.get('end_date')).toBe('2026-08-12')
+    expect(url.searchParams.get('timezone')).toBe('auto')
+    expect(url.searchParams.get('timeformat')).toBe('unixtime')
+    expect(url.searchParams.get('start_date')).toBe('2026-08-11')
+    expect(url.searchParams.get('end_date')).toBe('2026-08-13')
     expect(url.searchParams.get('hourly')?.split(',')).toHaveLength(7)
   })
 })
@@ -63,6 +68,18 @@ describe('weatherAtTime', () => {
   it('returns null outside the downloaded day', () => {
     const forecast = parseOpenMeteoResponse(OPEN_METEO_RESPONSE)
     expect(weatherAtTime(forecast, new Date('2026-08-13T04:00:00Z'))).toBeNull()
+  })
+
+  it('uses absolute Unix instants rather than applying a fixed UTC offset', () => {
+    const tokyoForecast = parseOpenMeteoResponse({
+      ...OPEN_METEO_RESPONSE,
+      timezone: 'Asia/Tokyo',
+      utc_offset_seconds: 32_400,
+    })
+    const snapshot = weatherAtTime(tokyoForecast, new Date('2026-08-12T18:17:00Z'))
+
+    expect(snapshot?.forecastTime.toISOString()).toBe('2026-08-12T18:00:00.000Z')
+    expect(snapshot?.temperatureCelsius).toBe(34.2)
   })
 })
 

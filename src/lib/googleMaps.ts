@@ -11,7 +11,6 @@ function configureGoogleMaps(): void {
     key: apiKey,
     v: '3.65',
     language: 'fr',
-    region: 'FR',
     authReferrerPolicy: 'origin',
   })
   configured = true

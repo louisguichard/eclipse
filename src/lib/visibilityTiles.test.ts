@@ -5,12 +5,16 @@ import type { VisibilityDatasetManifest } from '../types/visibility'
 import {
   buildVisibilityTileUrl,
   createVisibilityImageMapType,
+  geographicBoundsIntersect,
   isValidTileY,
+  knownVisibilityCoverageAtPoint,
   latLngToTileCoordinate,
   normalizeTileX,
   pointInGeographicBounds,
+  preferredVisibilityDatasetAtPoint,
   tileGeographicBounds,
   tileIntersectsBounds,
+  visibilityDatasetsForView,
   visibilityManifestIssue,
 } from './visibilityTiles'
 
@@ -56,6 +60,21 @@ describe('Web Mercator tile geometry', () => {
   it('detects whether an observer is inside the published coverage', () => {
     expect(pointInGeographicBounds({ lat: 48.8566, lng: 2.3522 }, READY_MANIFEST.coverage)).toBe(true)
     expect(pointInGeographicBounds({ lat: 45.764, lng: 4.8357 }, READY_MANIFEST.coverage)).toBe(false)
+  })
+
+  it('intersects ordinary and antimeridian-crossing geographic bounds', () => {
+    expect(geographicBoundsIntersect(
+      { north: 49, south: 48, west: 1, east: 3 },
+      { north: 48.5, south: 47, west: 2, east: 4 },
+    )).toBe(true)
+    expect(geographicBoundsIntersect(
+      { north: 10, south: -10, west: 170, east: -170 },
+      { north: 5, south: -5, west: -179, east: -175 },
+    )).toBe(true)
+    expect(geographicBoundsIntersect(
+      { north: 49, south: 48, west: 1, east: 3 },
+      { north: 47, south: 46, west: 1, east: 3 },
+    )).toBe(false)
   })
 
   it('wraps x across the antimeridian and rejects y outside the world', () => {
@@ -111,6 +130,73 @@ describe('visibility tile URLs', () => {
       },
     }
     expect(visibilityManifestIssue(invalid)).toBe('Modèle d’URL de tuiles invalide.')
+  })
+})
+
+describe('visibility dataset catalogue selection', () => {
+  const COARSE_MANIFEST: VisibilityDatasetManifest = {
+    ...READY_MANIFEST,
+    id: 'idf-coarse',
+    version: 'idf-coarse-v1',
+    label: 'Île-de-France · 5 m',
+    coverage: { north: 49.25, south: 48.1, east: 3.6, west: 1.4 },
+    surface: {
+      ...READY_MANIFEST.surface,
+      resolutionMeters: 5,
+    },
+    tiles: {
+      ...READY_MANIFEST.tiles!,
+      minZoom: 8,
+      maxZoom: 15,
+    },
+  }
+
+  it('preserves fine-to-coarse priority at an overlapping point', () => {
+    const catalogue = [READY_MANIFEST, COARSE_MANIFEST]
+    const selected = visibilityDatasetsForView(
+      catalogue,
+      { lat: 48.8566, lng: 2.3522 },
+      null,
+      14,
+    )
+
+    expect(selected.map(({ id }) => id)).toEqual(['paris-test', 'idf-coarse'])
+    expect(preferredVisibilityDatasetAtPoint(
+      catalogue,
+      { lat: 48.8566, lng: 2.3522 },
+    )?.id).toBe('paris-test')
+  })
+
+  it('activates a regional layer intersecting the viewport without mounting unrelated data', () => {
+    const catalogue = [READY_MANIFEST, COARSE_MANIFEST]
+    const selected = visibilityDatasetsForView(
+      catalogue,
+      { lat: 45.764, lng: 4.8357 },
+      { north: 48.9, south: 48.7, east: 2.5, west: 2.1 },
+      15,
+    )
+
+    expect(selected.map(({ id }) => id)).toEqual(['paris-test', 'idf-coarse'])
+    expect(visibilityDatasetsForView(
+      catalogue,
+      { lat: 45.764, lng: 4.8357 },
+      { north: 46, south: 45.5, east: 5, west: 4.5 },
+      15,
+    )).toEqual([])
+  })
+
+  it('honours zoom ranges and distinguishes unpublished known coverage', () => {
+    const unavailable: VisibilityDatasetManifest = {
+      ...COARSE_MANIFEST,
+      availability: 'unavailable',
+      unavailableReason: 'Publication à venir.',
+      tiles: null,
+    }
+    const point = { lat: 48.4, lng: 2.7 }
+
+    expect(visibilityDatasetsForView([COARSE_MANIFEST], point, null, 16)).toEqual([])
+    expect(preferredVisibilityDatasetAtPoint([unavailable], point)).toBeNull()
+    expect(knownVisibilityCoverageAtPoint([unavailable], point)?.id).toBe('idf-coarse')
   })
 })
 

@@ -28,11 +28,21 @@ export type EclipseEvent = {
 }
 
 export type EclipseCircumstances = {
+  /** Whether any part of the 12 August 2026 eclipse is above the horizon. */
+  visible: boolean
   begin: EclipseEvent
   maximum: EclipseEvent
   end: EclipseEvent
   peakObscuration: number
   kind: string
+  /** Unclipped contacts, retained when sunrise or sunset limits observation. */
+  theoretical?: {
+    begin: EclipseEvent
+    maximum: EclipseEvent
+    end: EclipseEvent
+    peakObscuration: number
+    kind: string
+  }
 }
 
 export type EclipseSnapshot = {

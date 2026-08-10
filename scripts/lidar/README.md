@@ -1,4 +1,63 @@
-# Pipeline LiDAR — visibilité géométrique à Paris
+# Pipeline LiDAR — visibilité géométrique régionale
+
+Le générateur historique Paris accepte désormais `--region-config`. Les sept
+départements franciliens hors Paris sont préconfigurés à 5 m : `idf-77`,
+`idf-78`, `idf-91`, `idf-92`, `idf-93`, `idf-94` et `idf-95`. Paris conserve
+son jeu existant à 2 m.
+
+```bash
+# Prépare seulement contours, astronomie locale, relief, halo et grille.
+.venv-lidar/bin/python scripts/lidar/generate_idf_visibility.py --stage prepare
+
+# Une zone relançable indépendamment.
+.venv-lidar/bin/python scripts/lidar/generate_paris_visibility.py \
+  --region-config idf-77 --stage all
+
+# Toute l’Île-de-France hors Paris, dans l’ordre départemental.
+npm run lidar:idf -- --stage all
+```
+
+Chaque configuration peut aussi pointer vers un GeoJSON local (`boundary.type
+= file`), une URL GeoJSON ou un code officiel commune/département/région. Le
+maximum local, l’azimut, l’altitude et le rayon solaire sont calculés au
+centroïde avec `astronomy-engine`. Un échantillon RGE ALTI grossier adapte le
+halo à l’altitude solaire et au relief, entre les limites déclarées dans la
+configuration.
+
+Les téléchargements sont découpés et reprenables. Dans les trous LiDAR, chaque
+cellule tente automatiquement RGE ALTI pour le MNT et MNS Correl pour le MNS ;
+les comptes LiDAR/fallback/no-data figurent dans le manifeste. Un trou restant
+sur le profil solaire rend le résultat inconnu, jamais dégagé. La correction
+parisienne des ponts est désactivée par défaut pour les autres zones. Les
+sorties régionales destinées à R2 sont écrites dans
+`data/lidar/publish/{version}` et ne gonflent pas `public/` ni Git.
+
+Sur une grande zone, le MNT et le MNS peuvent être téléchargés en parallèle
+dans deux terminaux sans partager le même fichier :
+
+```bash
+.venv-lidar/bin/python scripts/lidar/generate_paris_visibility.py \
+  --region-config idf-77 --stage download --download-raster mnt
+.venv-lidar/bin/python scripts/lidar/generate_paris_visibility.py \
+  --region-config idf-77 --stage download --download-raster mns
+```
+
+Chaque raster possède son propre état atomique. Ne lancez toutefois jamais
+deux processus sur le **même** couple zone/raster.
+
+Une très grande zone peut également répartir un raster entre des workers
+disjoints. Lancez la commande suivante dans quatre terminaux en remplaçant
+l’index `0` par `0`, `1`, `2` puis `3` :
+
+```bash
+.venv-lidar/bin/python scripts/lidar/generate_paris_visibility.py \
+  --region-config idf-77 --stage download --download-raster mns \
+  --download-shards 4 --download-shard-index 0
+```
+
+Les workers écrivent des blocs sans chevauchement et des journaux séparés ;
+les comptes de sources du manifeste sont fusionnés par clé de bloc. Gardez un
+nombre de workers raisonnable afin de respecter le service public IGN.
 
 Ce dossier permet de reconstruire la couche statique **« Visibilité estimée au maximum »** affichée sur la carte. Le calcul utilise le relief au sol (MNT) et la surface LiDAR (MNS : relief, bâtiments et végétation) de l’IGN pour estimer si le disque solaire dépasse l’horizon modélisé depuis chaque cellule de Paris.
 
@@ -51,7 +110,8 @@ Le GeoJSON est mis en cache dans `data/lidar/paris/paris-boundary.geojson` pour 
 ## Prérequis
 
 - Python 3.11 ou plus récent ;
-- environ 1 Go d’espace disque libre pour le cache à la résolution par défaut ;
+- environ 1 Go d’espace disque libre pour Paris ; prévoyez au moins 12 Go pour
+  les sept départements franciliens à 5 m ;
 - une connexion réseau stable pour l’étape IGN WMS ;
 - les paquets listés dans `scripts/lidar/requirements.txt` : NumPy, Pillow et pyproj.
 
@@ -137,6 +197,11 @@ Pour la génération de référence à 2 m :
 | tuiles transparentes omises | 634 objets, écritures et octets de stockage évités |
 
 Le volume varie avec la résolution, l’emprise, les zooms et la compression PNG. `data/lidar/` est ignoré par Git ; les tuiles destinées au navigateur vivent dans `public/visibility/`.
+
+La génération IDF à 5 m produit 26 243 PNG non vides, environ 25,9 Mo de
+contenu à publier sur R2. Elle omet 18 020 tuiles transparentes. Les fichiers
+locaux MNT/MNS/classes occupent plusieurs gigaoctets pendant le calcul, mais ne
+sont ni versionnés ni envoyés au navigateur.
 
 Avec des blocs de 2 000 px, la grille actuelle produit 24 requêtes par raster, soit 48 requêtes WMS complètes pour le MNT et le MNS. La durée réelle dépend du débit IGN, du processeur et du stockage.
 

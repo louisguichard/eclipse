@@ -81,6 +81,69 @@ describe('Street View camera geometry', () => {
     expect(Math.abs(point.y - 0.5)).toBeLessThan(0.02)
   })
 
+  it('keeps the Sun attached to the panorama at the fully zoomed-out level', () => {
+    const sun = { azimuth: 284, altitude: 8 }
+    const firstPan = horizontalToViewportPoint(
+      sun,
+      { heading: 264, pitch: 8, zoom: 0 },
+      16 / 9,
+    )
+    const secondPan = horizontalToViewportPoint(
+      sun,
+      { heading: 244, pitch: 8, zoom: 0 },
+      16 / 9,
+    )
+    const tiltedDown = horizontalToViewportPoint(
+      sun,
+      { heading: 264, pitch: -12, zoom: 0 },
+      16 / 9,
+    )
+
+    expect(firstPan.visible).toBe(true)
+    expect(firstPan.x).toBeGreaterThan(0.55)
+    expect(secondPan.x).toBeGreaterThan(firstPan.x + 0.08)
+    expect(tiltedDown.y).toBeLessThan(0.4)
+  })
+
+  it('tracks fractional zoom values returned near Street View zoom zero', () => {
+    const sun = { azimuth: 284, altitude: 8 }
+    const point = horizontalToViewportPoint(
+      sun,
+      { heading: 239, pitch: -12, zoom: 0.03 },
+      16 / 9,
+    )
+
+    expect(point.visible).toBe(true)
+    expect(point.x).toBeGreaterThan(0.7)
+    expect(point.y).toBeLessThan(0.4)
+  })
+
+  it('stays finite across low zoom levels and viewport shapes', () => {
+    const sun = { azimuth: 284, altitude: 8 }
+
+    for (const zoom of [0, 0.03, 0.25, 1]) {
+      for (const aspectRatio of [9 / 16, 16 / 9]) {
+        const point = horizontalToViewportPoint(
+          sun,
+          { heading: 254, pitch: -2, zoom },
+          aspectRatio,
+        )
+        expect(Number.isFinite(point.x)).toBe(true)
+        expect(Number.isFinite(point.y)).toBe(true)
+      }
+    }
+  })
+
+  it('marks directions behind the 180° viewport as out of frame', () => {
+    const point = horizontalToViewportPoint(
+      { azimuth: 284, altitude: 8 },
+      { heading: 184, pitch: 8, zoom: 0 },
+      16 / 9,
+    )
+
+    expect(point.visible).toBe(false)
+  })
+
   it('detects when the Sun is genuinely beyond the Street View field of view', () => {
     const sun = { azimuth: 284, altitude: 8 }
     const point = horizontalToViewportPoint(
@@ -143,6 +206,13 @@ describe('apparent solar size', () => {
     const expected = Math.tan((45 * Math.PI) / 180) / Math.tan((11.25 * Math.PI) / 180)
     expect(tight / wide).toBeCloseTo(expected, 6)
     expect(tight / wide).toBeGreaterThan(4)
+  })
+
+  it('keeps a finite angular size at the 180° panoramic zoom', () => {
+    const pixels = angularDiameterToPixels(SUN_DIAMETER_DEGREES, { zoom: 0 }, 1400)
+
+    expect(pixels).toBeGreaterThan(4)
+    expect(pixels).toBeLessThan(5)
   })
 
   it('scales linearly with the viewport width', () => {

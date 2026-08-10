@@ -44,11 +44,16 @@ function placeStub(overrides: Record<string, unknown> = {}) {
 
 describe('LocationSearch', () => {
   let autocompleteElement: HTMLElement | null
+  let autocompleteOptions: Record<string, unknown> | null
 
   beforeEach(() => {
     autocompleteElement = null
+    autocompleteOptions = null
     googleMapsMocks.loadGoogleLibrary.mockResolvedValue({
-      BasicPlaceAutocompleteElement: function BasicPlaceAutocompleteElement() {
+      BasicPlaceAutocompleteElement: function BasicPlaceAutocompleteElement(
+        options: Record<string, unknown>,
+      ) {
+        autocompleteOptions = options
         autocompleteElement = document.createElement('gmp-basic-place-autocomplete')
         return autocompleteElement
       },
@@ -75,6 +80,18 @@ describe('LocationSearch', () => {
     })
     return view
   }
+
+  it('keeps the French interface without restricting suggestions to France', async () => {
+    render(<LocationSearch observer={OBSERVER} onSelect={vi.fn()} />)
+    await waitFor(() => expect(autocompleteOptions).not.toBeNull())
+
+    expect(autocompleteOptions).toMatchObject({
+      requestedLanguage: 'fr',
+      description: 'Rechercher un lieu d’observation dans le monde',
+    })
+    expect(autocompleteOptions).not.toHaveProperty('includedRegionCodes')
+    expect(autocompleteOptions).not.toHaveProperty('requestedRegion')
+  })
 
   it('resolves the selected place using only EEA-permitted map fields', async () => {
     const onSelect = vi.fn()

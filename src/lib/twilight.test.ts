@@ -14,6 +14,7 @@ function snapshotWith(altitude: number, obscuration: number): EclipseSnapshot {
     magnitude: 0.95,
     moonOffset: { horizontal: 0.05, vertical: 0.05 },
     circumstances: {
+      visible: true,
       begin: { time: new Date('2026-08-12T17:22:00.000Z'), altitude: 15 },
       maximum: { time: new Date('2026-08-12T18:17:00.000Z'), altitude: 7.8 },
       end: { time: new Date('2026-08-12T19:09:00.000Z'), altitude: 1 },

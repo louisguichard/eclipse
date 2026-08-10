@@ -2,12 +2,13 @@ import { Pause, Play } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { TIMELINE } from '../config/eclipse'
 import type { TimelinePlaybackController } from '../hooks/useTimelinePlayback'
-import { formatParisTime } from '../lib/format'
+import { formatLocalTime } from '../lib/format'
 import type { EclipseSnapshot } from '../types'
 
 type MobileDialTimelineProps = {
   minute: number
   snapshot: EclipseSnapshot
+  timeZone?: string | null
   blocked?: boolean
   onMinuteChange: (minute: number) => void
   playback: TimelinePlaybackController
@@ -35,6 +36,7 @@ function pointOnArc(progress: number) {
 export function MobileDialTimeline({
   minute,
   snapshot,
+  timeZone = null,
   blocked = false,
   onMinuteChange,
   playback,
@@ -43,8 +45,16 @@ export function MobileDialTimeline({
   const surfaceRef = useRef<HTMLDivElement>(null)
 
   const range = useMemo(() => {
-    const start = clamp(timelineMinute(snapshot.circumstances.begin.time), 0, TIMELINE.totalMinutes)
-    const end = clamp(timelineMinute(snapshot.circumstances.end.time), 0, TIMELINE.totalMinutes)
+    const start = clamp(
+      timelineMinute(snapshot.circumstances.begin.time),
+      TIMELINE.minMinute,
+      TIMELINE.maxMinute,
+    )
+    const end = clamp(
+      timelineMinute(snapshot.circumstances.end.time),
+      TIMELINE.minMinute,
+      TIMELINE.maxMinute,
+    )
     const maximum = clamp(timelineMinute(snapshot.circumstances.maximum.time), start, end)
     return { start, end: Math.max(start + 1, end), maximum }
   }, [snapshot.circumstances])
@@ -90,6 +100,19 @@ export function MobileDialTimeline({
     }
   }, [dragging, updateFromPointer])
 
+  if (!snapshot.circumstances.visible) {
+    return (
+      <section
+        className="mobile-timeline mobile-timeline--unavailable"
+        aria-label="Chronologie de l’éclipse"
+        role="status"
+      >
+        <strong>Éclipse non visible ici</strong>
+        <span>Essayez un autre lieu d’observation.</span>
+      </section>
+    )
+  }
+
   const changeByMinute = (delta: number) => {
     stopPlayback()
     onMinuteChange(clamp(minute + delta, range.start, range.end))
@@ -98,7 +121,7 @@ export function MobileDialTimeline({
   return (
     <section className="mobile-timeline" aria-label="Chronologie de l’éclipse">
       <div className="mobile-timeline__clock">
-        <strong>{formatParisTime(snapshot.date)}</strong>
+        <strong>{formatLocalTime(snapshot.date, timeZone)}</strong>
         <span>Glisser pour changer l’heure</span>
       </div>
 
@@ -112,7 +135,7 @@ export function MobileDialTimeline({
           aria-valuemin={Math.round(range.start)}
           aria-valuemax={Math.round(range.end)}
           aria-valuenow={Math.round(minute)}
-          aria-valuetext={formatParisTime(snapshot.date)}
+          aria-valuetext={formatLocalTime(snapshot.date, timeZone)}
           aria-disabled={blocked}
           onPointerDown={(event) => {
             if (blocked) return
@@ -160,10 +183,10 @@ export function MobileDialTimeline({
             />
           </svg>
           <span className="mobile-dial__time mobile-dial__time--start">
-            {formatParisTime(snapshot.circumstances.begin.time)}
+            {formatLocalTime(snapshot.circumstances.begin.time, timeZone)}
           </span>
           <span className="mobile-dial__time mobile-dial__time--end">
-            {formatParisTime(snapshot.circumstances.end.time)}
+            {formatLocalTime(snapshot.circumstances.end.time, timeZone)}
           </span>
         </div>
 

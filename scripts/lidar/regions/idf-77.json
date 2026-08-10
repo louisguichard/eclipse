@@ -1,0 +1,1 @@
+{"id":"idf-77","label":"Seine-et-Marne","datasetVersion":"idf-77-2026-max-v1","boundary":{"type":"official","level":"department","code":"77"},"resolutionMeters":5,"minZoom":8,"maxZoom":15,"chunkSize":2000,"deckCorrection":false,"halo":{"strategy":"automatic","minimumMeters":4000,"maximumMeters":15000,"structureAllowanceMeters":80,"safetyMeters":750,"lateralMeters":50}}

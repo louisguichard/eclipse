@@ -2,7 +2,7 @@
 
 💡 Ce projet a été entièrement vibe-codé, principalement avec Codex (GPT 5.6 Sol). L'ensemble du code et de la documentation a été écrit par IA (à la seule exception de ce paragraphe).
 
-Une application web mobile et desktop pour savoir **où regarder dans le ciel le mercredi 12 août 2026** depuis un point précis en France. Street View occupe la scène principale ; la carte, la simulation astronomique, la météo horaire et la chronologie restent accessibles dans des cartes compactes.
+Une application web mobile et desktop pour savoir **où regarder dans le ciel le mercredi 12 août 2026** depuis n’importe quel point du monde. Street View occupe la scène principale ; la carte, la simulation astronomique, la météo horaire et la chronologie restent accessibles dans des cartes compactes. Hors de l’empreinte de l’éclipse, l’interface l’indique explicitement au lieu d’afficher un événement futur.
 
 Choisissez une adresse, cliquez sur la carte ou autorisez votre position : l’application cherche le panorama Street View le plus proche, calcule la position apparente du Soleil et de la Lune avec [`astronomy-engine`](https://github.com/cosinekitty/astronomy), puis oriente la caméra vers l’éclipse. Le viseur aide à juger visuellement si un bâtiment, un arbre ou le relief masque cette direction — sans prétendre analyser l’image.
 
@@ -19,10 +19,10 @@ Fonctions principales :
 - rayon d’azimut solaire mis à jour minute par minute ;
 - panorama Street View réutilisé et automatiquement orienté vers le Soleil ;
 - disque Soleil–Lune calculé à partir des positions et rayons angulaires apparents ;
-- chronologie 19 h 15–21 h 15 avec lecture accélérée, contacts locaux et coucher du Soleil ;
+- chronologie mondiale 15 h 30–20 h UTC avec lecture accélérée, contacts locaux observables et coucher du Soleil ;
 - diagnostic honnête de visibilité, distance au panorama et niveau de confiance ;
 - prévision horaire Open-Meteo pour le lieu et l’heure sélectionnés ;
-- couche LiDAR active par défaut sur Paris, estimant le dégagement géométrique au maximum à partir du MNT/MNS IGN ;
+- couche de visibilité active par défaut : Paris à 2 m, puis les sept autres départements franciliens à 5 m depuis R2 ;
 - URL partageable (`lat`, `lng`, `time`) et mode diagnostic `?debug=true` ;
 - interface française responsive et métadonnées PWA.
 
@@ -156,6 +156,12 @@ npm run preview
 
 # Tester le modèle géométrique LiDAR (Python facultatif)
 npm run lidar:test
+
+# Générer les sept départements franciliens, étape par étape et avec reprise
+npm run lidar:idf -- --stage prepare
+npm run lidar:idf -- --stage download
+npm run lidar:idf -- --stage classify
+npm run lidar:idf -- --stage tiles
 ```
 
 Pour reproduire exactement une installation CI, utilisez `npm ci` plutôt que `npm install` lorsque `package-lock.json` est présent.
@@ -219,6 +225,15 @@ npm run r2:publish
 npm run r2:verify -- https://tiles.louisguichard.fr/visibility
 ```
 
+Pour une sortie régionale, passez explicitement son dossier au même outil :
+
+```bash
+npm run r2:plan -- --source data/lidar/publish/idf-92-2026-max-v1
+npm run r2:publish -- --source data/lidar/publish/idf-92-2026-max-v1
+npm run r2:verify -- https://tiles.louisguichard.fr/visibility \
+  --source data/lidar/publish/idf-92-2026-max-v1
+```
+
 Le script réalise un `aws s3 sync` S3-compatible vers le dossier versionné,
 sans `--delete`, et applique un cache immuable d’un an. La politique CORS
 Cloudflare prête à appliquer se trouve dans `scripts/r2/cors.json`.
@@ -262,7 +277,7 @@ La séparation importante est la suivante :
 
 ## Validation astronomique
 
-La référence par défaut est le centre de Paris (`48.8566, 2.3522`) et le fuseau d’affichage est toujours `Europe/Paris`. Les instants sont stockés en UTC, ce qui évite de coder un décalage fixe ; le 12 août 2026, Paris est en UTC+2.
+La référence par défaut est le centre de Paris (`48.8566, 2.3522`). Les instants sont stockés en UTC et les heures sont affichées dans le fuseau IANA du lieu demandé, renvoyé par Open-Meteo ; le 12 août 2026, Paris est ainsi en UTC+2. La fenêtre mondiale couvre les contacts observables d’Anchorage à Dakar, et le maximum affiché est ramené au lever ou au coucher lorsque le pic théorique se trouve sous l’horizon.
 
 Résultats obtenus avec `astronomy-engine` pour un observateur à altitude 0 m, coordonnées apparentes avec réfraction atmosphérique normale :
 
@@ -276,11 +291,24 @@ Résultats obtenus avec `astronomy-engine` pour un observateur à altitude 0 m, 
 
 Ces valeurs concordent avec la référence [NASA pour Paris](https://science.nasa.gov/eclipses/future-eclipses/total-solar-eclipse-on-august-12-2026/) : début 19 h 22, maximum 20 h 17, couverture 92 %, fin 21 h 09. Les tests utilisent des tolérances réalistes, pas une égalité à la seconde ou au centième de degré. L’altitude réelle apparente près de l’horizon peut varier avec la pression, la température, le relief et la réfraction locale.
 
-## Couche de visibilité LiDAR à Paris
+## Couche de visibilité IGN à Paris et en Île-de-France
 
 La carte peut superposer une estimation géométrique indépendante de Google fondée sur le **LiDAR HD IGN**. Elle compare un œil placé 1,7 m au-dessus du MNT au profil du MNS — relief, bâti et végétation — dans la direction du Soleil au maximum central parisien (`20:17:11`, azimut `283,804835°`, altitude apparente `7,723762°`).
 
 La version fournie, `paris-2026-max-v1`, couvre la commune administrative de Paris sur une grille Lambert-93 à 2 m. Elle contient 940 tuiles PNG XYZ indexées sur 1 bit, zooms 10 à 16, pour environ 0,59 Mo de contenu. Les 634 tuiles entièrement transparentes sont omises ; la carte transforme proprement leur réponse absente en transparence. Les fichiers navigateur sont dans `public/visibility/paris-2026-max-v1/`; le cache de calcul local d’environ 682 Mo est volontairement ignoré par Git.
+
+Les sept départements périphériques sont calculés séparément à 5 m et publiés
+dans `idf-{77,78,91,92,93,94,95}-2026-max-v1`. Pour chaque département, le
+pipeline récupère le contour officiel, calcule avec Astronomy Engine le maximum
+local au centroïde, transforme l’azimut vrai dans la grille Lambert-93 et adapte
+automatiquement le halo amont à l’altitude solaire et au relief. La couverture
+LiDAR HD disponible est prioritaire ; ses lacunes sont complétées cellule par
+cellule par le MNS Correl et RGE ALTI. Si le profil vers le Soleil traverse
+encore une donnée absente, le pixel est marqué inconnu plutôt que jaune.
+La publication francilienne obtenue contient 26 243 PNG visibles pour environ
+25,9 Mo ; 18 020 tuiles entièrement transparentes sont omises. Les rasters et
+classes intermédiaires restent dans `data/lidar/`, ignoré par Git, tandis que
+seules les petites pyramides dérivées sont envoyées vers R2.
 
 Le modèle calcule toujours quatre classes, mais la carte n’en peint qu’une : le **dégagement probable**, en jaune. « Horizon sensible », « incertain » et « masquage probable » restent transparents, pour que la carte réponde à une seule question au lieu d’imposer une légende à décoder. Les zones jaunes sont par ailleurs **élargies au rendu** — une rue dégagée de 10 m serait invisible au zoom ville — donc leurs contours sont indicatifs et non métriques ; la classification enregistrée, elle, conserve son étendue exacte.
 
@@ -290,20 +318,25 @@ Sur les ponts, l’observateur est placé sur le tablier détecté et non sur l�
 
 Ces classes décrivent uniquement une ligne de visée modélisée. Le MNS date de mars 2023, peut sous-estimer le feuillage d’août et ne connaît ni les travaux récents, ni l’accessibilité, ni la météo. Street View et une vérification sur place restent indispensables.
 
-Source et attribution : **© IGN — LiDAR HD MNT/MNS, bloc KE, acquisition 03-03-2023, édition 06-06-2025, Licence Ouverte 2.0**. La procédure complète, les commandes par étape, les volumes, l’algorithme et ses limites sont documentés dans [`scripts/lidar/README.md`](scripts/lidar/README.md).
+Source Paris : **© IGN — LiDAR HD MNT/MNS, bloc KE, acquisition 03-03-2023,
+édition 06-06-2025, Licence Ouverte 2.0**. Attribution régionale : **© IGN —
+LiDAR HD, MNS Correl et RGE ALTI · Licence Ouverte 2.0**. La procédure complète,
+les commandes par étape, les volumes, l’algorithme et ses limites sont
+documentés dans [`scripts/lidar/README.md`](scripts/lidar/README.md).
 
 Pour régénérer la version par défaut après installation des dépendances Python :
 
 ```bash
 npm run lidar:test
 npm run lidar:generate
+npm run lidar:idf -- --stage all
 ```
 
 Le téléchargement IGN est repris bloc par bloc. Pour modifier la résolution ou l’emprise, utilisez un nouveau `--data-dir` et un nouveau `--public-dir` afin de ne pas mélanger deux versions scientifiques.
 
 ## Prévision météo
 
-Le navigateur demande à [Open-Meteo Forecast API](https://open-meteo.com/en/docs) les valeurs horaires du 12 août pour les coordonnées arrondies : température, code météo, couverture nuageuse, probabilité de pluie, visibilité et vent. Le composant affiche l’heure disponible la plus proche de la timeline.
+Le navigateur demande à [Open-Meteo Forecast API](https://open-meteo.com/en/docs) les valeurs horaires autour du 12 août pour les coordonnées arrondies : température, code météo, couverture nuageuse, probabilité de pluie, visibilité et vent. `timezone=auto` fournit le fuseau IANA local et `timeformat=unixtime` garde des instants UTC non ambigus ; une enveloppe de trois dates civiles couvre aussi les lieux situés de l’autre côté de la ligne de changement de date. Le composant affiche l’heure disponible la plus proche de la timeline.
 
 Les réponses sont mises en cache 15 minutes en mémoire. Déplacer la timeline ne relance pas de requête ; changer de position déclenche une requête temporisée et annule l’ancienne. Une prévision reste incertaine et évolutive : elle ne constitue jamais une garantie de ciel dégagé.
 
@@ -359,7 +392,7 @@ Pour un compte de facturation domicilié dans l’Espace économique européen, 
 - Street View n’est pas une vue en direct. La photo peut être ancienne, saisonnière ou prise depuis la chaussée.
 - La position du panorama diffère souvent du point choisi. L’interface affiche cette distance et réduit clairement la confiance au-delà d’environ 30 m.
 - La hauteur de caméra Street View n’est pas celle des yeux de l’utilisateur ; un obstacle proche peut donc changer la visibilité.
-- À Paris, la couche LiDAR estime le relief, le bâti et la végétation d’après le MNT/MNS 2023 ; elle ne prédit pas les constructions récentes, l’état réel du feuillage ni la réfraction locale. La météo affichée est une prévision séparée et évolutive.
+- La couche IGN estime le relief, le bâti et la végétation à partir de millésimes hétérogènes. Hors Paris, la résolution est 5 m et les lacunes LiDAR utilisent des modèles de complément moins fins ; elle ne prédit ni les constructions récentes, ni l’état réel du feuillage, ni la réfraction locale. La météo affichée est une prévision séparée et évolutive.
 - Le viseur répond seulement à « dans quelle direction regarder ? ». S’il tombe dans le ciel de la photo, la vue **semble** dégagée ; s’il tombe sur un obstacle, cherchez un autre emplacement et vérifiez sur place.
 - Aucune vision par ordinateur, extraction de profondeur, capture automatisée, scraping ni modèle dérivé de l’imagerie Street View n’est utilisé. Cela évite une promesse scientifique trompeuse et respecte les restrictions d’usage du contenu Google Maps.
 - Les contacts et pourcentages changent avec la position ; les repères parisiens du design ne remplacent jamais les circonstances locales calculées.
@@ -375,7 +408,8 @@ Pour un compte de facturation domicilié dans l’Espace économique européen, 
 | Aucun panorama | élargissement progressif terminé ; essayez un point routier voisin |
 | Géolocalisation refusée | autorisation du navigateur, contexte HTTPS en production |
 | URL partagée incorrecte | `lat`, `lng` valides et `time` compris dans la timeline |
-| Heures décalées | vérifiez que l’affichage utilise `Europe/Paris`, pas le fuseau de la machine |
+| Heures décalées | vérifiez le fuseau IANA renvoyé par Open-Meteo dans `?debug=true` ; le repli avant chargement est UTC |
+| « Éclipse non visible ici » | le lieu est hors de l’empreinte observable du 12 août 2026 ; essayez l’Europe, l’Afrique du Nord ou le nord de l’Amérique du Nord |
 
 La [liste officielle des erreurs Maps JavaScript API](https://developers.google.com/maps/documentation/javascript/error-messages) détaille les codes affichés dans la console du navigateur.
 

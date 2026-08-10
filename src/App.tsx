@@ -20,7 +20,7 @@ import { MapView } from './components/MapView'
 import { MobileDialTimeline } from './components/MobileDialTimeline'
 import { StreetView } from './components/StreetView'
 import { Timeline } from './components/Timeline'
-import { formatParisDateTime } from './lib/format'
+import { formatLocalDateTime } from './lib/format'
 import { hasGoogleMapsApiKey } from './lib/googleMaps'
 import { useEclipse } from './hooks/useEclipse'
 import { useObserverLocation } from './hooks/useObserverLocation'
@@ -63,17 +63,18 @@ function App() {
   const [legal, setLegal] = useState<'privacy' | 'terms' | null>(null)
   const debug = useMemo(() => new URLSearchParams(window.location.search).get('debug') === 'true', [])
   const cloudCover = weather.snapshot?.cloudCover
-  const playbackStart = snapshot
+  const timeZone = weather.timeZone ?? 'UTC'
+  const playbackStart = snapshot?.circumstances.visible
     ? (snapshot.circumstances.begin.time.getTime() - TIMELINE.startUtc.getTime()) / 60_000
-    : 0
-  const playbackEnd = snapshot
+    : TIMELINE.defaultMinute
+  const playbackEnd = snapshot?.circumstances.visible
     ? (snapshot.circumstances.end.time.getTime() - TIMELINE.startUtc.getTime()) / 60_000
-    : TIMELINE.totalMinutes
+    : TIMELINE.defaultMinute
   const playback = useTimelinePlayback({
     minute,
     start: playbackStart,
     end: playbackEnd,
-    blocked: mobileLayer != null,
+    blocked: mobileLayer != null || snapshot?.circumstances.visible === false,
     onMinuteChange: setMinute,
   })
 
@@ -286,6 +287,7 @@ function App() {
             <StreetView
               observer={location}
               snapshot={snapshot}
+              timeZone={timeZone}
               active={mobileView === 'street'}
               expanded={expandedSimulation}
               onExpandedChange={setExpandedSimulation}
@@ -308,6 +310,7 @@ function App() {
           <Timeline
             minute={minute}
             snapshot={snapshot}
+            timeZone={timeZone}
             onMinuteChange={setMinute}
             playback={playback}
           />
@@ -320,6 +323,7 @@ function App() {
               <MapView
                 observer={location}
                 snapshot={snapshot}
+                timeZone={timeZone}
                 active={mobileView === 'map' || desktopMapExpanded}
                 onLocationChange={selectMapLocation}
               />
@@ -345,7 +349,8 @@ function App() {
         <MobileDialTimeline
           minute={minute}
           snapshot={snapshot}
-          blocked={mobileLayer != null}
+          timeZone={timeZone}
+          blocked={mobileLayer != null || !snapshot.circumstances.visible}
           onMinuteChange={setMinute}
           playback={playback}
         />
@@ -388,7 +393,7 @@ function App() {
           <span>Lune&nbsp;: az {snapshot.moon.azimuth.toFixed(4)}° · alt {snapshot.moon.altitude.toFixed(4)}°</span>
           <span>Obscuration&nbsp;: {(snapshot.obscuration * 100).toFixed(4)} %</span>
           <span>UTC&nbsp;: {snapshot.date.toISOString()}</span>
-          <span>Paris&nbsp;: {formatParisDateTime(snapshot.date)}</span>
+          <span>Local ({timeZone})&nbsp;: {formatLocalDateTime(snapshot.date, timeZone)}</span>
         </div>
       )}
       <LegalModal type={legal} onClose={() => setLegal(null)} />

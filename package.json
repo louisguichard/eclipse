@@ -16,6 +16,7 @@
     "test:coverage": "vitest run --coverage",
     "lidar:test": "python scripts/lidar/test_visibility_model.py",
     "lidar:generate": "python scripts/lidar/generate_paris_visibility.py",
+    "lidar:idf": "python scripts/lidar/generate_idf_visibility.py",
     "r2:test": "python3 scripts/r2/test_publish_visibility.py",
     "r2:plan": "python3 scripts/r2/publish_visibility.py --plan",
     "r2:publish": "python3 scripts/r2/publish_visibility.py",

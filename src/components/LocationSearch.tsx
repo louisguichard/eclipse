@@ -48,11 +48,9 @@ export function LocationSearch({ observer, onSelect, autoFocus = false }: Locati
         if (cancelled || !autocompleteHostRef.current) return
 
         autocomplete = new places.BasicPlaceAutocompleteElement({
-          includedRegionCodes: ['fr'],
           requestedLanguage: 'fr',
-          requestedRegion: 'fr',
           placeholder: 'Rechercher un lieu…',
-          description: 'Rechercher un lieu d’observation en France',
+          description: 'Rechercher un lieu d’observation dans le monde',
           noInputIcon: true,
         })
         autocomplete.className = 'places-autocomplete'

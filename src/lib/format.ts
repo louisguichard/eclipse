@@ -1,5 +1,3 @@
-import { PARIS_TIME_ZONE } from '../config/eclipse'
-
 const COMPASS_DIRECTIONS = [
   'Nord',
   'Nord-nord-est',
@@ -48,22 +46,39 @@ export function azimuthToCompassShort(azimuth: number): string {
   return COMPASS_ABBREVIATIONS[Math.round(normalized / 22.5) % 16]
 }
 
-export function formatParisTime(date: Date, includeSeconds = false): string {
+function validTimeZone(timeZone: string | null | undefined): string {
+  if (!timeZone) return 'UTC'
+  try {
+    new Intl.DateTimeFormat('fr-FR', { timeZone }).format(0)
+    return timeZone
+  } catch {
+    return 'UTC'
+  }
+}
+
+export function formatLocalTime(
+  date: Date,
+  timeZone: string | null | undefined,
+  includeSeconds = false,
+): string {
   return new Intl.DateTimeFormat('fr-FR', {
-    timeZone: PARIS_TIME_ZONE,
+    timeZone: validTimeZone(timeZone),
     hour: '2-digit',
     minute: '2-digit',
     ...(includeSeconds ? { second: '2-digit' } : {}),
-    hour12: false,
+    hourCycle: 'h23',
   }).format(date)
 }
 
-export function formatParisDateTime(date: Date): string {
+export function formatLocalDateTime(
+  date: Date,
+  timeZone: string | null | undefined,
+): string {
   return new Intl.DateTimeFormat('fr-FR', {
-    timeZone: PARIS_TIME_ZONE,
+    timeZone: validTimeZone(timeZone),
     dateStyle: 'short',
     timeStyle: 'medium',
-    hour12: false,
+    hourCycle: 'h23',
   }).format(date)
 }
 

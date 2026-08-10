@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build the static Paris eclipse-visibility tile pyramid from IGN LiDAR HD.
+"""Build a regional eclipse-visibility tile pyramid from IGN elevation data.
 
 The source elevations are requested from the public IGN WMS as raw float32
 BIL, directly on a two-metre Lambert-93 grid.  Full-resolution 50 cm source
@@ -37,6 +37,21 @@ from visibility_model import (
     detect_deck_cells,
     dilate_mask,
     estimate_water_planes,
+    sanitize_elevation,
+)
+from region_pipeline import (
+    EclipseGeometry,
+    HaloDefinition,
+    RegionCentroid,
+    RegionDefinition,
+    boundary_centroid,
+    calculate_eclipse_geometry,
+    dataclass_json,
+    derive_halo,
+    load_or_fetch_boundary,
+    load_region_definition,
+    polygon_groups as regional_polygon_groups,
+    projected_polygon_groups,
 )
 
 
@@ -44,6 +59,8 @@ PARIS_CONTOUR_URL = "https://geo.api.gouv.fr/communes/75056?format=geojson&geome
 IGN_WMS_URL = "https://data.geopf.fr/wms-r/wms"
 MNT_LAYER = "IGNF_LIDAR-HD_MNT_ELEVATION.ELEVATIONGRIDCOVERAGE.LAMB93"
 MNS_LAYER = "IGNF_LIDAR-HD_MNS_ELEVATION.ELEVATIONGRIDCOVERAGE.LAMB93"
+MNT_FALLBACK_LAYER = "ELEVATION.ELEVATIONGRIDCOVERAGE.HIGHRES"
+MNS_FALLBACK_LAYER = "ELEVATION.ELEVATIONGRIDCOVERAGE.HIGHRES.MNS"
 DATASET_VERSION = "paris-2026-max-v1"
 
 # Exact local maximum calculated by Astronomy Engine for central Paris.
@@ -61,6 +78,7 @@ ATTRIBUTION = (
     "© IGN — LiDAR HD MNT/MNS, bloc KE, acquisition 03-03-2023, "
     "édition 06-06-2025, Licence Ouverte 2.0"
 )
+GENERIC_ATTRIBUTION = "© IGN — LiDAR HD, MNS Correl et RGE ALTI · Licence Ouverte 2.0"
 
 # The map answers one question — will the Sun be visible from here — so only
 # the robustly clear class is painted. Every other outcome stays transparent.
@@ -229,6 +247,9 @@ def coordinate_rings(geometry: dict[str, Any]) -> Iterable[list[list[float]]]:
 
 
 def polygon_groups(geometry: dict[str, Any]) -> Iterable[list[list[list[float]]]]:
+    if geometry.get("type") in ("Feature", "FeatureCollection"):
+        yield from regional_polygon_groups(geometry)
+        return
     if geometry["type"] == "Polygon":
         yield geometry["coordinates"]
         return
@@ -241,13 +262,11 @@ def polygon_groups(geometry: dict[str, Any]) -> Iterable[list[list[list[float]]]
 def project_boundary(
     feature: dict[str, Any], transformer: Transformer
 ) -> list[list[list[tuple[float, float]]]]:
-    projected: list[list[list[tuple[float, float]]]] = []
-    for polygon in polygon_groups(feature["geometry"]):
-        projected_polygon: list[list[tuple[float, float]]] = []
-        for ring in polygon:
-            projected_polygon.append([transformer.transform(lon, lat) for lon, lat in ring])
-        projected.append(projected_polygon)
-    return projected
+    if feature.get("type") in ("Feature", "FeatureCollection"):
+        return projected_polygon_groups(feature, transformer)
+    return projected_polygon_groups(
+        {"type": "Feature", "properties": {}, "geometry": feature}, transformer
+    )
 
 
 def snapped_floor(value: float, step: float) -> float:
@@ -258,7 +277,91 @@ def snapped_ceil(value: float, step: float) -> float:
     return math.ceil(value / step) * step
 
 
-def build_grid(feature: dict[str, Any], resolution: float) -> GridDefinition:
+def projected_boundary_bounds(feature: dict[str, Any]) -> Bounds:
+    transformer = Transformer.from_crs("EPSG:4326", "EPSG:2154", always_xy=True)
+    projected = project_boundary(feature, transformer)
+    points = [point for polygon in projected for ring in polygon for point in ring]
+    if not points:
+        raise ValueError("Boundary contains no coordinates")
+    return Bounds(
+        west=min(point[0] for point in points),
+        south=min(point[1] for point in points),
+        east=max(point[0] for point in points),
+        north=max(point[1] for point in points),
+    )
+
+
+def estimate_relief_range(
+    feature: dict[str, Any],
+    cache_path: Path,
+    policy: dict[str, Any] | None,
+) -> float:
+    """Estimate regional relief with one coarse, cached RGE ALTI request."""
+
+    options = policy or {}
+    if "reliefRangeMeters" in options:
+        return float(options["reliefRangeMeters"])
+    if cache_path.exists():
+        return float(json.loads(cache_path.read_text(encoding="utf-8"))["rangeMeters"])
+    bounds = projected_boundary_bounds(feature)
+    longest = max(bounds.east - bounds.west, bounds.north - bounds.south)
+    sample_limit = int(options.get("reliefSamplePixels", 512))
+    width = max(1, round(sample_limit * (bounds.east - bounds.west) / longest))
+    height = max(1, round(sample_limit * (bounds.north - bounds.south) / longest))
+    parameters = {
+        "SERVICE": "WMS",
+        "VERSION": "1.3.0",
+        "REQUEST": "GetMap",
+        "LAYERS": MNT_FALLBACK_LAYER,
+        "STYLES": "normal",
+        "CRS": "EPSG:2154",
+        "BBOX": f"{bounds.west},{bounds.south},{bounds.east},{bounds.north}",
+        "WIDTH": str(width),
+        "HEIGHT": str(height),
+        "FORMAT": "image/x-bil;bits=32",
+    }
+    url = f"{IGN_WMS_URL}?{urllib.parse.urlencode(parameters)}"
+    request = urllib.request.Request(
+        url, headers={"User-Agent": "eclipse-2026-lidar-pipeline/2.0"}
+    )
+    with urllib.request.urlopen(request, timeout=180) as response:
+        payload = response.read()
+    expected_size = width * height * 4
+    if len(payload) != expected_size:
+        raise RuntimeError(
+            f"IGN relief sample returned {len(payload)} bytes; expected {expected_size}"
+        )
+    values = sanitize_elevation(
+        np.frombuffer(payload, dtype="<f4").reshape(height, width)
+    )
+    finite = values[np.isfinite(values)]
+    if finite.size < width * height * 0.25:
+        raise RuntimeError("Too little valid RGE ALTI coverage to estimate the halo")
+    # Robust extrema prevent one corrupt pixel from inflating the halo; the
+    # structure allowance and safety distance remain conservative afterwards.
+    minimum, maximum = np.percentile(finite, (0.5, 99.5))
+    result = max(0.0, float(maximum - minimum))
+    write_json(
+        cache_path,
+        {
+            "rangeMeters": result,
+            "minimumMeters": float(minimum),
+            "maximumMeters": float(maximum),
+            "sample": {"width": width, "height": height, "layer": MNT_FALLBACK_LAYER},
+        },
+    )
+    return result
+
+
+def build_grid(
+    feature: dict[str, Any],
+    resolution: float,
+    *,
+    centroid: RegionCentroid | None = None,
+    solar_azimuth_degrees: float = SUN_AZIMUTH_DEGREES,
+    sunward_halo_meters: float = SUNWARD_HALO_METERS,
+    lateral_halo_meters: float = LATERAL_HALO_METERS,
+) -> GridDefinition:
     to_lambert = Transformer.from_crs("EPSG:4326", "EPSG:2154", always_xy=True)
     projected = project_boundary(feature, to_lambert)
     points = [point for polygon in projected for ring in polygon for point in ring]
@@ -271,12 +374,13 @@ def build_grid(feature: dict[str, Any], resolution: float) -> GridDefinition:
         north=snapped_ceil(max(ys), resolution),
     )
 
-    center_lon = 2.3522
-    center_lat = 48.8566
+    region_center = centroid or boundary_centroid(feature)
+    center_lon = region_center.longitude
+    center_lat = region_center.latitude
     endpoint_lon, endpoint_lat, _ = Geod(ellps="WGS84").fwd(
         center_lon,
         center_lat,
-        SUN_AZIMUTH_DEGREES,
+        solar_azimuth_degrees,
         1_000,
     )
     center_x, center_y = to_lambert.transform(center_lon, center_lat)
@@ -291,20 +395,20 @@ def build_grid(feature: dict[str, Any], resolution: float) -> GridDefinition:
     grid_azimuth = math.degrees(math.atan2(ray_east, ray_north)) % 360
 
     input_west = snapped_floor(
-        output.west + ray_east * SUNWARD_HALO_METERS - LATERAL_HALO_METERS,
+        output.west + ray_east * sunward_halo_meters - lateral_halo_meters,
         resolution,
     )
-    input_east = snapped_ceil(output.east + LATERAL_HALO_METERS, resolution)
+    input_east = snapped_ceil(output.east + lateral_halo_meters, resolution)
     # The linear pass keeps predecessors for the complete west-east span.  Its
     # northward digital rays therefore need a matching northern halo even when
     # distant obstacles have already fallen far below the solar ray.
     total_horizontal_span = input_east - input_west
     required_north_span = total_horizontal_span * ray_north / -ray_east
     input_north = snapped_ceil(
-        output.north + required_north_span + LATERAL_HALO_METERS,
+        output.north + required_north_span + lateral_halo_meters,
         resolution,
     )
-    input_south = snapped_floor(output.south - LATERAL_HALO_METERS, resolution)
+    input_south = snapped_floor(output.south - lateral_halo_meters, resolution)
     input_bounds = Bounds(input_west, input_south, input_east, input_north)
 
     width = round((input_east - input_west) / resolution)
@@ -326,7 +430,7 @@ def build_grid(feature: dict[str, Any], resolution: float) -> GridDefinition:
         output_bounds=output,
         output_rows=output_rows,
         output_columns=output_columns,
-        true_solar_azimuth_degrees=SUN_AZIMUTH_DEGREES,
+        true_solar_azimuth_degrees=solar_azimuth_degrees,
         grid_solar_azimuth_degrees=grid_azimuth,
         grid_ray_east_component=ray_east,
         grid_ray_north_component=ray_north,
@@ -340,21 +444,65 @@ def grid_as_json(grid: GridDefinition) -> dict[str, Any]:
     return value
 
 
+def merge_elevation_sources(
+    primary: np.ndarray,
+    fallback: np.ndarray | None,
+) -> tuple[np.ndarray, dict[str, int]]:
+    """Fill only invalid primary cells and report the resulting source tiers."""
+
+    values = np.asarray(primary, dtype=np.float32).copy()
+    primary_valid = np.isfinite(sanitize_elevation(values))
+    fallback_cells = 0
+    if fallback is not None:
+        fallback_values = np.asarray(fallback, dtype=np.float32)
+        if fallback_values.shape != values.shape:
+            raise ValueError("Primary and fallback rasters must have the same shape")
+        fallback_valid = np.isfinite(sanitize_elevation(fallback_values))
+        use_fallback = ~primary_valid & fallback_valid
+        values[use_fallback] = fallback_values[use_fallback]
+        fallback_cells = int(use_fallback.sum())
+    final_valid = np.isfinite(sanitize_elevation(values))
+    return values, {
+        "lidar": int(primary_valid.sum()),
+        "fallback": fallback_cells,
+        "noData": int((~final_valid).sum()),
+    }
+
+
 def download_wms_raster(
     layer: str,
     destination: Path,
     state_path: Path,
     grid: GridDefinition,
     chunk_size: int,
+    *,
+    fallback_layer: str | None = None,
+    shard_index: int = 0,
+    shard_count: int = 1,
 ) -> None:
-    signature = {
+    if shard_count < 1 or shard_index < 0 or shard_index >= shard_count:
+        raise ValueError("Download shard index must be within the shard count")
+    base_signature = {
         "layer": layer,
         "grid": grid_as_json(grid),
         "chunk_size": chunk_size,
     }
-    state: dict[str, Any] = {"signature": signature, "completed": []}
-    if state_path.exists():
-        state = json.loads(state_path.read_text(encoding="utf-8"))
+    if fallback_layer is not None:
+        base_signature["fallback_layer"] = fallback_layer
+    signature = dict(base_signature)
+    actual_state_path = state_path
+    if shard_count > 1:
+        signature.update({"shard_index": shard_index, "shard_count": shard_count})
+        actual_state_path = state_path.with_name(
+            f"{state_path.stem}-shard-{shard_index + 1}-of-{shard_count}{state_path.suffix}"
+        )
+    state: dict[str, Any] = {
+        "signature": signature,
+        "completed": [],
+        "sourceCellsByChunk": {},
+    }
+    if actual_state_path.exists():
+        state = json.loads(actual_state_path.read_text(encoding="utf-8"))
         if state.get("signature") != signature:
             raise RuntimeError(
                 f"Grid changed for {destination}. Move the existing data/lidar directory before regenerating."
@@ -379,15 +527,29 @@ def download_wms_raster(
         raster.flush()
 
     completed = set(state.get("completed", []))
+    if shard_count > 1 and state_path.exists():
+        base_state = json.loads(state_path.read_text(encoding="utf-8"))
+        if base_state.get("signature") != base_signature:
+            raise RuntimeError(
+                f"Grid changed for {destination}. Move the existing data/lidar directory before regenerating."
+            )
+        completed.update(base_state.get("completed", []))
     chunks = [
         (row, column)
         for row in range(0, grid.height, chunk_size)
         for column in range(0, grid.width, chunk_size)
     ]
+    owned_chunks = {
+        f"{row}:{column}"
+        for index, (row, column) in enumerate(chunks)
+        if index % shard_count == shard_index
+    }
     last_request_at = 0.0
 
     for index, (row, column) in enumerate(chunks, start=1):
         key = f"{row}:{column}"
+        if key not in owned_chunks:
+            continue
         if key in completed:
             continue
         chunk_height = min(chunk_size, grid.height - row)
@@ -396,11 +558,10 @@ def download_wms_raster(
         right = left + chunk_width * grid.resolution_meters
         top = grid.input_bounds.north - row * grid.resolution_meters
         bottom = top - chunk_height * grid.resolution_meters
-        parameters = {
+        base_parameters = {
             "SERVICE": "WMS",
             "VERSION": "1.3.0",
             "REQUEST": "GetMap",
-            "LAYERS": layer,
             "STYLES": "normal",
             "CRS": grid.crs,
             "BBOX": f"{left},{bottom},{right},{top}",
@@ -408,48 +569,63 @@ def download_wms_raster(
             "HEIGHT": str(chunk_height),
             "FORMAT": "image/x-bil;bits=32",
         }
-        url = f"{IGN_WMS_URL}?{urllib.parse.urlencode(parameters)}"
-
         expected_size = chunk_height * chunk_width * 4
-        payload: bytes | None = None
-        for attempt in range(5):
-            delay = 1.05 - (time.monotonic() - last_request_at)
-            if delay > 0:
-                time.sleep(delay)
-            request = urllib.request.Request(
-                url,
-                headers={"User-Agent": "eclipse-2026-lidar-pipeline/1.0"},
-            )
-            try:
-                last_request_at = time.monotonic()
-                with urllib.request.urlopen(request, timeout=180) as response:
-                    payload = response.read()
-                if len(payload) != expected_size:
-                    preview = payload[:300].decode("utf-8", errors="replace")
-                    raise RuntimeError(
-                        f"IGN returned {len(payload)} bytes, expected {expected_size}: {preview}"
-                    )
-                break
-            except Exception as error:
-                if attempt == 4:
-                    raise RuntimeError(f"IGN WMS request failed for chunk {key}") from error
-                time.sleep(2 ** attempt)
+        def request_layer(requested_layer: str) -> bytes:
+            nonlocal last_request_at
+            parameters = dict(base_parameters, LAYERS=requested_layer)
+            url = f"{IGN_WMS_URL}?{urllib.parse.urlencode(parameters)}"
+            for attempt in range(5):
+                delay = 1.05 - (time.monotonic() - last_request_at)
+                if delay > 0:
+                    time.sleep(delay)
+                request = urllib.request.Request(
+                    url,
+                    headers={"User-Agent": "eclipse-2026-lidar-pipeline/2.0"},
+                )
+                try:
+                    last_request_at = time.monotonic()
+                    with urllib.request.urlopen(request, timeout=180) as response:
+                        payload = response.read()
+                    if len(payload) != expected_size:
+                        preview = payload[:300].decode("utf-8", errors="replace")
+                        raise RuntimeError(
+                            f"IGN returned {len(payload)} bytes, expected {expected_size}: {preview}"
+                        )
+                    return payload
+                except Exception as error:
+                    if attempt == 4:
+                        raise RuntimeError(
+                            f"IGN WMS {requested_layer} failed for chunk {key}"
+                        ) from error
+                    time.sleep(2 ** attempt)
+            raise AssertionError("unreachable")
 
-        assert payload is not None
-        values = np.frombuffer(payload, dtype="<f4").reshape(chunk_height, chunk_width)
+        primary_values = np.frombuffer(request_layer(layer), dtype="<f4").reshape(
+            chunk_height, chunk_width
+        )
+        fallback_values: np.ndarray | None = None
+        if fallback_layer is not None and not np.isfinite(
+            sanitize_elevation(primary_values)
+        ).all():
+            fallback_values = np.frombuffer(
+                request_layer(fallback_layer), dtype="<f4"
+            ).reshape(chunk_height, chunk_width)
+        values, source_counts = merge_elevation_sources(primary_values, fallback_values)
         raster[row : row + chunk_height, column : column + chunk_width] = values
         raster.flush()
         completed.add(key)
         state["completed"] = sorted(completed)
-        write_json(state_path, state)
+        state.setdefault("sourceCellsByChunk", {})[key] = source_counts
+        write_json(actual_state_path, state)
+        completed_owned = len(owned_chunks.intersection(completed))
         print(
             f"{destination.stem}: bloc {index}/{len(chunks)} "
-            f"({100 * len(completed) / len(chunks):.0f} %)",
+            f"({100 * completed_owned / len(owned_chunks):.0f} % du shard)",
             flush=True,
         )
 
 
-def rasterize_paris_mask(
+def rasterize_region_mask(
     feature: dict[str, Any],
     grid: GridDefinition,
 ) -> np.ndarray:
@@ -476,10 +652,36 @@ def rasterize_paris_mask(
     return np.asarray(image, dtype=np.uint8) > 0
 
 
-def classify_paris(
+# Backward-compatible import name used by earlier local tooling.
+rasterize_paris_mask = rasterize_region_mask
+
+
+def _source_tier_counts(data_dir: Path) -> dict[str, Any]:
+    result: dict[str, Any] = {}
+    for name in ("mnt", "mns"):
+        totals = {"lidar": 0, "fallback": 0, "noData": 0}
+        counts_by_chunk: dict[str, dict[str, int]] = {}
+        for path in sorted(data_dir.glob(f"{name}-download*.json")):
+            state = json.loads(path.read_text(encoding="utf-8"))
+            for chunk, counts in state.get("sourceCellsByChunk", {}).items():
+                counts_by_chunk[chunk] = counts
+        for counts in counts_by_chunk.values():
+            for key in totals:
+                totals[key] += int(counts.get(key, 0))
+        result[name] = totals
+    return result
+
+
+def classify_region(
     data_dir: Path,
     feature: dict[str, Any],
     grid: GridDefinition,
+    *,
+    region_id: str = "paris",
+    eclipse: EclipseGeometry | None = None,
+    observer_height_meters: float = OBSERVER_HEIGHT_METERS,
+    model_margin_degrees: float = MODEL_MARGIN_DEGREES,
+    deck_correction: bool = True,
 ) -> Path:
     shape = (grid.height, grid.width)
     mnt = np.memmap(data_dir / "mnt.f32", dtype="<f4", mode="r", shape=shape)
@@ -493,14 +695,32 @@ def classify_paris(
             last_percent = percent
             print(f"Calcul de visibilité : {percent} %", flush=True)
 
-    water_planes = estimate_water_planes(mnt)
-    print(
-        "Plans d’eau estimés : "
-        + ", ".join(f"{plane:.2f} m NGF" for plane in water_planes),
-        flush=True,
-    )
-    deck = detect_deck_cells(mnt, mns, water_planes)
-    print(f"Tabliers détectés : {int(deck.sum())} cellules", flush=True)
+    if eclipse is None:
+        eclipse = EclipseGeometry(
+            search_start_utc="2026-08-01T00:00:00.000Z",
+            kind="partial",
+            obscuration=0.92,
+            partial_begin_utc="2026-08-12T17:22:00.000Z",
+            maximum_utc=MAXIMUM_UTC,
+            partial_end_utc="2026-08-12T19:09:00.000Z",
+            sun_azimuth_degrees=SUN_AZIMUTH_DEGREES,
+            sun_apparent_altitude_degrees=SUN_APPARENT_ALTITUDE_DEGREES,
+            sun_angular_radius_degrees=SUN_ANGULAR_RADIUS_DEGREES,
+        )
+
+    water_planes: list[float] = []
+    deck: np.ndarray | None = None
+    if deck_correction:
+        water_planes = estimate_water_planes(mnt)
+        print(
+            "Plans d’eau estimés : "
+            + ", ".join(f"{plane:.2f} m NGF" for plane in water_planes),
+            flush=True,
+        )
+        deck = detect_deck_cells(mnt, mns, water_planes)
+        print(f"Tabliers détectés : {int(deck.sum())} cellules", flush=True)
+    else:
+        print("Correction des tabliers désactivée (mode régional conservateur)", flush=True)
 
     classes = classify_visibility(
         mnt,
@@ -510,20 +730,20 @@ def classify_paris(
             pixel_north_meters=grid.resolution_meters,
         ),
         SolarGeometry(
-            azimuth_degrees=SUN_AZIMUTH_DEGREES,
+            azimuth_degrees=eclipse.sun_azimuth_degrees,
             grid_azimuth_degrees=grid.grid_solar_azimuth_degrees,
-            altitude_degrees=SUN_APPARENT_ALTITUDE_DEGREES,
-            angular_radius_degrees=SUN_ANGULAR_RADIUS_DEGREES,
-            model_margin_degrees=MODEL_MARGIN_DEGREES,
+            altitude_degrees=eclipse.sun_apparent_altitude_degrees,
+            angular_radius_degrees=eclipse.sun_angular_radius_degrees,
+            model_margin_degrees=model_margin_degrees,
         ),
         slice(*grid.output_rows),
         slice(*grid.output_columns),
-        observer_height_meters=OBSERVER_HEIGHT_METERS,
+        observer_height_meters=observer_height_meters,
         deck=deck,
         progress=progress,
     )
-    classes[~rasterize_paris_mask(feature, grid)] = CLASS_NO_DATA
-    class_path = data_dir / "paris-visibility-classes.npy"
+    classes[~rasterize_region_mask(feature, grid)] = CLASS_NO_DATA
+    class_path = data_dir / f"{region_id}-visibility-classes.npy"
     np.save(class_path, classes)
     counts = np.bincount(classes.ravel(), minlength=CLASS_COUNT)
     write_json(
@@ -537,20 +757,26 @@ def classify_paris(
                 "blocked": int(counts[CLASS_BLOCKED]),
             },
             "solar": {
-                "timeUtc": MAXIMUM_UTC,
-                "azimuthDegrees": SUN_AZIMUTH_DEGREES,
-                "apparentAltitudeDegrees": SUN_APPARENT_ALTITUDE_DEGREES,
-                "angularRadiusDegrees": SUN_ANGULAR_RADIUS_DEGREES,
-                "modelMarginDegrees": MODEL_MARGIN_DEGREES,
+                "timeUtc": eclipse.maximum_utc,
+                "azimuthDegrees": eclipse.sun_azimuth_degrees,
+                "apparentAltitudeDegrees": eclipse.sun_apparent_altitude_degrees,
+                "angularRadiusDegrees": eclipse.sun_angular_radius_degrees,
+                "modelMarginDegrees": model_margin_degrees,
+                "obscuration": eclipse.obscuration,
             },
             "deck": {
                 "waterPlanesMeters": [round(float(p), 3) for p in water_planes],
-                "cells": int(deck.sum()),
+                "enabled": deck_correction,
+                "cells": 0 if deck is None else int(deck.sum()),
             },
+            "sourceTiers": _source_tier_counts(data_dir),
         },
     )
     print(f"Classification écrite dans {class_path}", flush=True)
     return class_path
+
+
+classify_paris = classify_region
 
 
 def longitude_to_tile_x(longitude: float, zoom: int) -> float:
@@ -586,7 +812,16 @@ def generate_tiles(
     grid: GridDefinition,
     min_zoom: int,
     max_zoom: int,
+    *,
+    region: RegionDefinition | None = None,
+    centroid: RegionCentroid | None = None,
+    eclipse: EclipseGeometry | None = None,
+    halo: HaloDefinition | None = None,
 ) -> None:
+    dataset_version = DATASET_VERSION if region is None else region.dataset_version
+    region_label = "Paris" if region is None else region.label
+    observer_height = OBSERVER_HEIGHT_METERS if region is None else region.observer_height_meters
+    maximum_utc = MAXIMUM_UTC if eclipse is None else eclipse.maximum_utc
     source_classes = np.load(class_path)
     clear = source_classes == CLASS_CLEAR
     # Never paint outside the dataset: dilation must not bleed into the cells
@@ -651,22 +886,22 @@ def generate_tiles(
         (class_path.parent / "classification.json").read_text(encoding="utf-8")
     )
     manifest = {
-        "id": "paris-maximum-geometry",
-        "version": DATASET_VERSION,
+        "id": f"{('paris' if region is None else region.id)}-maximum-geometry",
+        "version": dataset_version,
         "generatedAt": datetime.now(UTC).isoformat(),
         "reference": {
             "mode": "fixed-instant",
-            "timeUtc": MAXIMUM_UTC,
-            "label": "Paris uniquement · maximum à 20:17",
+            "timeUtc": maximum_utc,
+            "label": f"{region_label} · maximum local au centroïde",
+            "centroid": None if centroid is None else dataclass_json(centroid),
         },
         "coverage": asdict(coverage),
         "surface": {
             "resolutionMeters": grid.resolution_meters,
-            "observerHeightMeters": OBSERVER_HEIGHT_METERS,
+            "observerHeightMeters": observer_height,
             "includesBuildings": True,
             "includesVegetation": True,
-            "sourceAcquisitionDate": "2023-03-03",
-            "sourceEditionDate": "2025-06-06",
+            "sourceTiers": ["IGN LiDAR HD", "MNS Correl (fallback)", "RGE ALTI (fallback)"],
         },
         "tiles": {
             "scheme": "xyz",
@@ -683,13 +918,15 @@ def generate_tiles(
             },
         },
         "classification": classification,
-        "attribution": ATTRIBUTION,
+        "halo": None if halo is None else dataclass_json(halo),
+        "attribution": ATTRIBUTION if region is None else region.attribution,
         "license": "https://www.etalab.gouv.fr/licence-ouverte-open-licence/",
         "limitations": [
             "Le modèle ne prédit pas les nuages.",
-            "Le MNS parisien a été acquis en mars 2023 et peut sous-estimer le feuillage d’août.",
+            "Le millésime des surfaces peut être hétérogène et le feuillage d’août sous-estimé.",
             "La couche ne garantit pas que le pixel soit accessible au public.",
-            "La résolution de calcul est dérivée à 2 m du LiDAR HD IGN à 50 cm.",
+            f"La résolution de calcul est dérivée à {grid.resolution_meters:g} m des sources IGN.",
+            "Les trous LiDAR utilisent MNS Correl/RGE ALTI quand ils sont disponibles, avec une précision moindre.",
             (
                 "Les zones jaunes sont élargies pour rester lisibles — d’au moins "
                 f"{RENDER_DILATION_CELLS * grid.resolution_meters:g} m, et jusqu’à "
@@ -711,35 +948,119 @@ def parse_arguments() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--stage",
-        choices=("all", "download", "classify", "tiles"),
+        choices=("all", "prepare", "download", "classify", "tiles"),
         default="all",
     )
-    parser.add_argument("--resolution", type=float, default=2.0)
-    parser.add_argument("--chunk-size", type=int, default=2_000)
-    parser.add_argument("--min-zoom", type=int, default=13)
-    parser.add_argument("--max-zoom", type=int, default=16)
-    parser.add_argument("--data-dir", type=Path, default=Path("data/lidar/paris"))
+    parser.add_argument(
+        "--region-config",
+        help="JSON path or built-in name from scripts/lidar/regions (for example idf-77)",
+    )
+    parser.add_argument(
+        "--download-raster",
+        choices=("all", "mnt", "mns"),
+        default="all",
+        help="Limit the download stage to one resumable raster (default: both)",
+    )
+    parser.add_argument(
+        "--download-shards",
+        type=int,
+        default=1,
+        help="Split one raster into this many disjoint download workers",
+    )
+    parser.add_argument(
+        "--download-shard-index",
+        type=int,
+        default=0,
+        help="Zero-based worker index used with --download-shards",
+    )
+    parser.add_argument("--resolution", type=float)
+    parser.add_argument("--chunk-size", type=int)
+    parser.add_argument("--min-zoom", type=int)
+    parser.add_argument("--max-zoom", type=int)
+    parser.add_argument("--data-dir", type=Path)
     parser.add_argument(
         "--public-dir",
         type=Path,
-        default=Path("public/visibility") / DATASET_VERSION,
     )
     return parser.parse_args()
 
 
+def resolve_region_config(value: str) -> Path:
+    candidate = Path(value)
+    if candidate.exists():
+        return candidate
+    built_in = Path(__file__).with_name("regions") / f"{value.removesuffix('.json')}.json"
+    if built_in.exists():
+        return built_in
+    raise FileNotFoundError(f"Unknown region config: {value}")
+
+
 def main() -> None:
     arguments = parse_arguments()
-    if arguments.resolution <= 0:
+    region = (
+        load_region_definition(resolve_region_config(arguments.region_config))
+        if arguments.region_config
+        else None
+    )
+    resolution = arguments.resolution or (2.0 if region is None else region.resolution_meters)
+    chunk_size = arguments.chunk_size or (2_000 if region is None else region.chunk_size)
+    min_zoom = arguments.min_zoom if arguments.min_zoom is not None else (13 if region is None else region.min_zoom)
+    max_zoom = arguments.max_zoom if arguments.max_zoom is not None else (16 if region is None else region.max_zoom)
+    data_dir = arguments.data_dir or Path("data/lidar") / ("paris" if region is None else region.id)
+    public_dir = arguments.public_dir or (
+        Path("public/visibility") / DATASET_VERSION
+        if region is None
+        else Path("data/lidar/publish") / region.dataset_version
+    )
+    if resolution <= 0:
         raise ValueError("Resolution must be positive")
-    if arguments.chunk_size <= 0 or arguments.chunk_size > 4_000:
+    if chunk_size <= 0 or chunk_size > 4_000:
         raise ValueError("Chunk size must be between 1 and 4000")
-    if arguments.min_zoom > arguments.max_zoom:
+    if (
+        arguments.download_shards < 1
+        or arguments.download_shard_index < 0
+        or arguments.download_shard_index >= arguments.download_shards
+    ):
+        raise ValueError("Download shard index must be within the shard count")
+    if min_zoom > max_zoom:
         raise ValueError("Minimum zoom must not exceed maximum zoom")
 
-    boundary_path = arguments.data_dir / "paris-boundary.geojson"
-    boundary = load_boundary(boundary_path)
-    grid = build_grid(boundary, arguments.resolution)
-    grid_path = arguments.data_dir / "grid.json"
+    boundary_path = data_dir / "boundary.geojson"
+    if region is None:
+        # Preserve the legacy cache name and exact Paris source.
+        boundary_path = data_dir / "paris-boundary.geojson"
+        boundary = load_boundary(boundary_path)
+        # The published v1 grid used this Astronomy Engine reference point;
+        # retaining it keeps existing grid/download signatures resumable.
+        centroid = RegionCentroid(longitude=2.3522, latitude=48.8566)
+        eclipse = EclipseGeometry(
+            "2026-08-01T00:00:00.000Z", "partial", 0.92,
+            "2026-08-12T17:22:00.000Z", MAXIMUM_UTC,
+            "2026-08-12T19:09:00.000Z", SUN_AZIMUTH_DEGREES,
+            SUN_APPARENT_ALTITUDE_DEGREES, SUN_ANGULAR_RADIUS_DEGREES,
+        )
+        halo = derive_halo(
+            eclipse, 0, {"strategy": "fixed", "sunwardMeters": SUNWARD_HALO_METERS,
+                         "lateralMeters": LATERAL_HALO_METERS}, MODEL_MARGIN_DEGREES
+        )
+    else:
+        boundary = load_or_fetch_boundary(region, boundary_path)
+        centroid = boundary_centroid(boundary)
+        eclipse = calculate_eclipse_geometry(centroid, region.search_start_utc)
+        relief = estimate_relief_range(boundary, data_dir / "relief.json", region.halo)
+        halo = derive_halo(eclipse, relief, region.halo, region.model_margin_degrees)
+        write_json(
+            data_dir / "preparation.json",
+            {"region": dataclass_json(region), "centroid": dataclass_json(centroid),
+             "eclipse": dataclass_json(eclipse), "halo": dataclass_json(halo)},
+        )
+    grid = build_grid(
+        boundary, resolution, centroid=centroid,
+        solar_azimuth_degrees=eclipse.sun_azimuth_degrees,
+        sunward_halo_meters=halo.sunward_meters,
+        lateral_halo_meters=halo.lateral_meters,
+    )
+    grid_path = data_dir / "grid.json"
     if grid_path.exists():
         existing = json.loads(grid_path.read_text(encoding="utf-8"))
         if existing != grid_as_json(grid):
@@ -754,33 +1075,54 @@ def main() -> None:
         flush=True,
     )
 
+    if arguments.stage == "prepare":
+        return
+    fallback = region is not None
     if arguments.stage in ("all", "download"):
-        download_wms_raster(
-            MNT_LAYER,
-            arguments.data_dir / "mnt.f32",
-            arguments.data_dir / "mnt-download.json",
-            grid,
-            arguments.chunk_size,
-        )
-        download_wms_raster(
-            MNS_LAYER,
-            arguments.data_dir / "mns.f32",
-            arguments.data_dir / "mns-download.json",
-            grid,
-            arguments.chunk_size,
-        )
-    class_path = arguments.data_dir / "paris-visibility-classes.npy"
+        if arguments.download_raster in ("all", "mnt"):
+            download_wms_raster(
+                MNT_LAYER,
+                data_dir / "mnt.f32",
+                data_dir / "mnt-download.json",
+                grid,
+                chunk_size,
+                fallback_layer=MNT_FALLBACK_LAYER if fallback else None,
+                shard_index=arguments.download_shard_index,
+                shard_count=arguments.download_shards,
+            )
+        if arguments.download_raster in ("all", "mns"):
+            download_wms_raster(
+                MNS_LAYER,
+                data_dir / "mns.f32",
+                data_dir / "mns-download.json",
+                grid,
+                chunk_size,
+                fallback_layer=MNS_FALLBACK_LAYER if fallback else None,
+                shard_index=arguments.download_shard_index,
+                shard_count=arguments.download_shards,
+            )
+    region_id = "paris" if region is None else region.id
+    class_path = data_dir / f"{region_id}-visibility-classes.npy"
     if arguments.stage in ("all", "classify"):
-        class_path = classify_paris(arguments.data_dir, boundary, grid)
+        class_path = classify_region(
+            data_dir, boundary, grid, region_id=region_id, eclipse=eclipse,
+            observer_height_meters=(OBSERVER_HEIGHT_METERS if region is None else region.observer_height_meters),
+            model_margin_degrees=(MODEL_MARGIN_DEGREES if region is None else region.model_margin_degrees),
+            deck_correction=True if region is None else region.deck_correction,
+        )
     if arguments.stage in ("all", "tiles"):
         if not class_path.exists():
             raise FileNotFoundError(f"Run the classify stage first: {class_path}")
         generate_tiles(
             class_path,
-            arguments.public_dir,
+            public_dir,
             grid,
-            arguments.min_zoom,
-            arguments.max_zoom,
+            min_zoom,
+            max_zoom,
+            region=region,
+            centroid=centroid,
+            eclipse=eclipse,
+            halo=halo,
         )
 
 

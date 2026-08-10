@@ -17,7 +17,8 @@ export type WeatherErrorKind =
   | 'invalid-response'
 
 export type WeatherHourlyData = {
-  time: string[]
+  /** Unix timestamps in seconds, requested explicitly from Open-Meteo. */
+  time: number[]
   temperature_2m: Array<number | null>
   apparent_temperature: Array<number | null>
   precipitation_probability: Array<number | null>
@@ -59,6 +60,8 @@ export type WeatherStatus = 'idle' | 'loading' | 'ready' | 'unavailable' | 'erro
 export type WeatherResult = {
   status: WeatherStatus
   snapshot: WeatherSnapshot | null
+  /** IANA time zone returned for the requested coordinates. */
+  timeZone: string | null
   error: string | null
   refresh: () => void
 }

@@ -1,16 +1,22 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { AlertTriangle, Compass } from 'lucide-react'
 import { buildSunTrajectory } from '../lib/astronomy'
-import { PARIS_VISIBILITY_MANIFEST, VISIBILITY_LAYER_OPACITY } from '../config/visibility'
+import { VISIBILITY_DATASETS, VISIBILITY_LAYER_OPACITY } from '../config/visibility'
 import { destinationPoint } from '../lib/geometry'
-import { formatParisTime } from '../lib/format'
+import { formatLocalTime } from '../lib/format'
 import { googleMapId, hasGoogleMapsApiKey, loadGoogleLibrary } from '../lib/googleMaps'
-import { createVisibilityImageMapType, pointInGeographicBounds } from '../lib/visibilityTiles'
+import {
+  createVisibilityImageMapType,
+  knownVisibilityCoverageAtPoint,
+  preferredVisibilityDatasetAtPoint,
+  visibilityDatasetsForView,
+} from '../lib/visibilityTiles'
 import type { EclipseSnapshot, ObserverLocation } from '../types'
 
 type MapViewProps = {
   observer: ObserverLocation
   snapshot: EclipseSnapshot
+  timeZone?: string | null
   active: boolean
   onLocationChange: (location: ObserverLocation) => void
 }
@@ -41,7 +47,8 @@ function DemoMap({
   observer,
   snapshot,
   loadFailed = false,
-}: Pick<MapViewProps, 'observer' | 'snapshot'> & { loadFailed?: boolean }) {
+  timeZone = null,
+}: Pick<MapViewProps, 'observer' | 'snapshot' | 'timeZone'> & { loadFailed?: boolean }) {
   const rotation = snapshot.sun.azimuth
   return (
     <div className="demo-map" role="img" aria-label="Aperçu cartographique simulé de Paris">
@@ -52,12 +59,14 @@ function DemoMap({
       <span className="demo-map__district district-b">PARIS 7e</span>
       <span className="demo-map__district district-c">PARIS 16e</span>
       <div className="demo-map__observer" aria-hidden="true"><span /></div>
-      <div className="demo-map__ray" style={{ transform: `rotate(${rotation}deg)` }}>
-        <span className="demo-map__ray-line" />
-        <span className="demo-map__sun-label" style={{ transform: `rotate(${-rotation}deg)` }}>
-          ☀ {formatParisTime(snapshot.date)}
-        </span>
-      </div>
+      {snapshot.circumstances.visible && (
+        <div className="demo-map__ray" style={{ transform: `rotate(${rotation}deg)` }}>
+          <span className="demo-map__ray-line" />
+          <span className="demo-map__sun-label" style={{ transform: `rotate(${-rotation}deg)` }}>
+            ☀ {formatLocalTime(snapshot.date, timeZone)}
+          </span>
+        </div>
+      )}
       <div className="demo-map__compass"><Compass size={15} /> N</div>
       <div className="demo-map__notice"><AlertTriangle size={14} /> {loadFailed ? 'Google Maps indisponible' : 'Carte de démonstration · clé requise'}</div>
       <span className="demo-map__location">{observer.label}</span>
@@ -65,25 +74,85 @@ function DemoMap({
   )
 }
 
-export function MapView({ observer, snapshot, active, onLocationChange }: MapViewProps) {
+export function MapView({
+  observer,
+  snapshot,
+  timeZone = null,
+  active,
+  onLocationChange,
+}: MapViewProps) {
   const hostRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<google.maps.Map | null>(null)
   const markerRef = useRef<google.maps.Circle | google.maps.marker.AdvancedMarkerElement | null>(null)
   const rayRef = useRef<google.maps.Polyline | null>(null)
   const arcRef = useRef<google.maps.Polyline | null>(null)
-  const visibilityMapTypeRef = useRef<google.maps.MapType | null>(null)
+  const visibilityMapTypesRef = useRef<Map<string, google.maps.MapType>>(new Map())
+  const activeVisibilityDatasetIdsRef = useRef<string[]>([])
   const clickListenerRef = useRef<google.maps.MapsEventListener | null>(null)
+  const viewportListenerRef = useRef<google.maps.MapsEventListener | null>(null)
   const onLocationChangeRef = useRef(onLocationChange)
   const initialObserverRef = useRef(observer)
+  const observerRef = useRef(observer)
   const [status, setStatus] = useState<'loading' | 'ready' | 'error'>(
     hasGoogleMapsApiKey ? 'loading' : 'ready',
   )
-  const visibilityAvailable = pointInGeographicBounds(
+  const preferredVisibilityDataset = preferredVisibilityDatasetAtPoint(
+    VISIBILITY_DATASETS,
     observer,
-    PARIS_VISIBILITY_MANIFEST.coverage,
+  )
+  const knownVisibilityDataset = knownVisibilityCoverageAtPoint(
+    VISIBILITY_DATASETS,
+    observer,
   )
 
   onLocationChangeRef.current = onLocationChange
+  observerRef.current = observer
+
+  const syncVisibilityLayers = useCallback(() => {
+    const map = mapRef.current
+    if (!map) return
+
+    const googleBounds = map.getBounds()
+    const southWest = googleBounds?.getSouthWest()
+    const northEast = googleBounds?.getNorthEast()
+    const viewport = southWest && northEast
+      ? {
+          north: northEast.lat(),
+          south: southWest.lat(),
+          east: northEast.lng(),
+          west: southWest.lng(),
+        }
+      : null
+    const manifests = visibilityDatasetsForView(
+      VISIBILITY_DATASETS,
+      observerRef.current,
+      viewport,
+      map.getZoom(),
+    ).filter((manifest) => visibilityMapTypesRef.current.has(manifest.id))
+    const nextIds = manifests.map((manifest) => manifest.id)
+    const previousIds = activeVisibilityDatasetIdsRef.current
+    if (
+      nextIds.length === previousIds.length
+      && nextIds.every((id, index) => id === previousIds[index])
+    ) {
+      return
+    }
+
+    const overlays = map.overlayMapTypes
+    const ownedMapTypes = new Set(visibilityMapTypesRef.current.values())
+    for (let index = overlays.getLength() - 1; index >= 0; index -= 1) {
+      const overlay = overlays.getAt(index)
+      if (overlay && ownedMapTypes.has(overlay)) overlays.removeAt(index)
+    }
+
+    // Google paints later overlay indices above earlier ones. Inserting each
+    // fine-to-coarse entry at zero leaves the first (Paris) at the top index.
+    for (const manifest of manifests) {
+      const mapType = visibilityMapTypesRef.current.get(manifest.id)
+      if (mapType) overlays.insertAt(0, mapType)
+    }
+    activeVisibilityDatasetIdsRef.current = nextIds
+  }, [])
 
   useEffect(() => {
     if (!hasGoogleMapsApiKey) return
@@ -171,17 +240,18 @@ export function MapView({ observer, snapshot, active, onLocationChange }: MapVie
           clickable: false,
         })
 
-        if (!visibilityMapTypeRef.current) {
+        for (const manifest of VISIBILITY_DATASETS) {
+          if (visibilityMapTypesRef.current.has(manifest.id)) continue
           const visibilityLayer = createVisibilityImageMapType(
             {
               Size: google.maps.Size,
             },
-            PARIS_VISIBILITY_MANIFEST,
+            manifest,
             VISIBILITY_LAYER_OPACITY,
           )
           if (visibilityLayer.status === 'ready') {
-            visibilityMapTypeRef.current = visibilityLayer.mapType
-          } else {
+            visibilityMapTypesRef.current.set(manifest.id, visibilityLayer.mapType)
+          } else if (visibilityLayer.status === 'error') {
             console.warn('Visibility layer unavailable', visibilityLayer.message)
           }
         }
@@ -198,6 +268,11 @@ export function MapView({ observer, snapshot, active, onLocationChange }: MapVie
             })
           })
         }
+        viewportListenerRef.current ??= mapRef.current.addListener(
+          'idle',
+          syncVisibilityLayers,
+        )
+        syncVisibilityLayers()
         setStatus('ready')
       } catch (error) {
         console.error('Google Map failed to load', error)
@@ -210,21 +285,17 @@ export function MapView({ observer, snapshot, active, onLocationChange }: MapVie
       cancelled = true
       clickListenerRef.current?.remove()
       clickListenerRef.current = null
+      viewportListenerRef.current?.remove()
+      viewportListenerRef.current = null
     }
-  }, [])
+  }, [syncVisibilityLayers])
 
-  // The layer is the point of the map, so it is always on: no toggle, no state.
+  // Layer objects are created once; only their membership in overlayMapTypes
+  // changes as the observer and viewport move between published coverages.
   useEffect(() => {
-    const map = mapRef.current
-    const layer = visibilityMapTypeRef.current
-    if (!map || !layer || status !== 'ready') return
-
-    const overlays = map.overlayMapTypes
-    for (let index = 0; index < overlays.getLength(); index += 1) {
-      if (overlays.getAt(index) === layer) return
-    }
-    overlays.insertAt(0, layer)
-  }, [status])
+    if (status !== 'ready') return
+    syncVisibilityLayers()
+  }, [observer.lat, observer.lng, status, syncVisibilityLayers])
 
   // Only the ray rotates during playback. Keeping the static marker and the
   // full contact-to-sunset trajectory out of this effect avoids rebuilding a
@@ -232,13 +303,17 @@ export function MapView({ observer, snapshot, active, onLocationChange }: MapVie
   useEffect(() => {
     const map = mapRef.current
     if (!map || status !== 'ready') return
+    if (!snapshot.circumstances.visible) {
+      rayRef.current?.setPath([])
+      return
+    }
     const endpoint = destinationPoint(
       observer,
       SOLAR_DIRECTION_DISTANCE_METERS,
       snapshot.sun.azimuth,
     )
     rayRef.current?.setPath([observer, endpoint])
-  }, [observer, snapshot.sun.azimuth, status])
+  }, [observer, snapshot.circumstances.visible, snapshot.sun.azimuth, status])
 
   useEffect(() => {
     const map = mapRef.current
@@ -256,6 +331,10 @@ export function MapView({ observer, snapshot, active, onLocationChange }: MapVie
   useEffect(() => {
     const map = mapRef.current
     if (!map || status !== 'ready') return
+    if (!snapshot.circumstances.visible) {
+      arcRef.current?.setPath([])
+      return
+    }
     const begin = new Date(trajectoryBeginTime)
     const circumstancesEnd = new Date(trajectoryEndTime)
     const sunset = sunsetTime == null ? null : new Date(sunsetTime)
@@ -267,7 +346,14 @@ export function MapView({ observer, snapshot, active, onLocationChange }: MapVie
       20,
     ).map((point) => destinationPoint(observer, 820, point.azimuth))
     arcRef.current?.setPath(trajectory)
-  }, [observer, status, sunsetTime, trajectoryBeginTime, trajectoryEndTime])
+  }, [
+    observer,
+    snapshot.circumstances.visible,
+    status,
+    sunsetTime,
+    trajectoryBeginTime,
+    trajectoryEndTime,
+  ])
 
   useEffect(() => {
     const map = mapRef.current
@@ -277,10 +363,14 @@ export function MapView({ observer, snapshot, active, onLocationChange }: MapVie
     // are visible, so location changes must move the map even when that flag is
     // false (the default mobile tab is Street View).
     map.panTo({ lat: observer.lat, lng: observer.lng })
-    if (observer.source === 'search' || observer.source === 'geolocation') {
-      map.setZoom(Math.max(map.getZoom() ?? 14, 16))
+    const datasetMaxZoom = preferredVisibilityDataset?.tiles?.maxZoom
+    if (datasetMaxZoom !== undefined && (map.getZoom() ?? datasetMaxZoom) > datasetMaxZoom) {
+      map.setZoom(datasetMaxZoom)
     }
-  }, [observer.lat, observer.lng, observer.source, status])
+    if (observer.source === 'search' || observer.source === 'geolocation') {
+      map.setZoom(Math.min(datasetMaxZoom ?? 16, Math.max(map.getZoom() ?? 14, 16)))
+    }
+  }, [observer.lat, observer.lng, observer.source, preferredVisibilityDataset, status])
 
   useEffect(() => {
     const map = mapRef.current
@@ -332,7 +422,14 @@ export function MapView({ observer, snapshot, active, onLocationChange }: MapVie
   }, [observer.lat, observer.lng, status])
 
   if (!hasGoogleMapsApiKey || status === 'error') {
-    return <DemoMap observer={observer} snapshot={snapshot} loadFailed={status === 'error'} />
+    return (
+      <DemoMap
+        observer={observer}
+        snapshot={snapshot}
+        timeZone={timeZone}
+        loadFailed={status === 'error'}
+      />
+    )
   }
 
   return (
@@ -342,20 +439,37 @@ export function MapView({ observer, snapshot, active, onLocationChange }: MapVie
         <div className="panel-loading" role="status"><span className="orb-loader" /> Chargement de la carte…</div>
       )}
       <p
-        className={`map-legend ${visibilityAvailable ? '' : 'map-legend--unavailable'}`}
-        title={PARIS_VISIBILITY_MANIFEST.disclaimer}
+        className={`map-legend ${preferredVisibilityDataset ? '' : 'map-legend--unavailable'}`}
+        title={
+          preferredVisibilityDataset?.disclaimer
+          ?? knownVisibilityDataset?.unavailableReason
+          ?? 'Aucune donnée de visibilité publiée pour cette zone.'
+        }
       >
         <span className="map-legend__swatch" aria-hidden="true" />
         <span className="map-legend__copy">
-          <strong>{visibilityAvailable ? 'Soleil probablement visible' : 'Zones de visibilité'}</strong>
+          <strong>{preferredVisibilityDataset ? 'Soleil probablement visible' : 'Zones de visibilité'}</strong>
           <span>
-            {visibilityAvailable
-              ? 'Jaune · 20:17 · hors météo'
-              : 'Disponibles à Paris uniquement'}
+            {preferredVisibilityDataset
+              ? `${preferredVisibilityDataset.label} · ${
+                  preferredVisibilityDataset.reference.mode === 'fixed-instant'
+                    ? formatLocalTime(
+                        new Date(preferredVisibilityDataset.reference.timeUtc!),
+                        'Europe/Paris',
+                      )
+                    : 'maximum local'
+                } · hors météo`
+              : knownVisibilityDataset
+                ? 'Données de visibilité momentanément indisponibles'
+                : 'Couche LiDAR disponible en Île-de-France uniquement'}
           </span>
         </span>
-        {visibilityAvailable && (
-          <span className="map-legend__source">© IGN LiDAR HD · acquisition 2023 · édition 2025</span>
+        {preferredVisibilityDataset && (
+          <span className="map-legend__source">
+            {preferredVisibilityDataset.id === 'paris-maximum-geometry'
+              ? '© IGN LiDAR HD · Licence Ouverte'
+              : '© IGN · 5 m · précision variable'}
+          </span>
         )}
       </p>
     </div>

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { DEFAULT_LOCATION } from '../config/locations'
 import { TIMELINE } from '../config/eclipse'
+import { localEclipseCircumstances, timelineMinuteFromDate } from '../lib/astronomy'
 import type { ObserverLocation } from '../types'
 
 function validCoordinate(value: number, min: number, max: number): boolean {
@@ -27,7 +28,7 @@ function readInitialState(): { location: ObserverLocation; minute: number } {
         }
       : DEFAULT_LOCATION,
     minute: params.has('time') && Number.isFinite(minute)
-      ? Math.max(0, Math.min(TIMELINE.totalMinutes, Math.round(minute)))
+      ? Math.max(TIMELINE.minMinute, Math.min(TIMELINE.maxMinute, Math.round(minute)))
       : TIMELINE.defaultMinute,
   }
 }
@@ -46,6 +47,15 @@ export function useObserverLocation() {
       return
     }
     setLocationState(next)
+    // A Paris instant can fall after the eclipse in Alaska. Jump to the local
+    // observable maximum on deliberate location changes, while preserving the
+    // chosen time during small Street View walks and initial shared-URL loads.
+    if (next.source !== 'streetview') {
+      const circumstances = localEclipseCircumstances(next)
+      setMinute(circumstances.visible
+        ? timelineMinuteFromDate(circumstances.maximum.time)
+        : TIMELINE.defaultMinute)
+    }
   }, [])
 
   const requestGeolocation = useCallback(() => {

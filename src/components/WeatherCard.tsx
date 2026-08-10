@@ -9,7 +9,7 @@ import {
   Sun,
 } from 'lucide-react'
 import { WEATHER } from '../config/weather'
-import { formatParisTime } from '../lib/format'
+import { formatLocalTime } from '../lib/format'
 import type { WeatherIconName, WeatherResult } from '../types/weather'
 
 type WeatherCardProps = {
@@ -71,7 +71,7 @@ export function WeatherCard({ weather, variant = 'card', className = '' }: Weath
         <span className="weather__condition">{snapshot.condition.label}</span>
         <span className="weather__meta-row">
           <span className="weather__meta">
-            {[formatParisTime(snapshot.forecastTime), clouds, rain].filter(Boolean).join(' · ')}
+            {[formatLocalTime(snapshot.forecastTime, weather.timeZone), clouds, rain].filter(Boolean).join(' · ')}
           </span>
           <a
             className="weather__source"

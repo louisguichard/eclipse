@@ -1,0 +1,1 @@
+{"id":"idf-91","label":"Essonne","datasetVersion":"idf-91-2026-max-v1","boundary":{"type":"official","level":"department","code":"91"},"resolutionMeters":5,"minZoom":8,"maxZoom":15,"chunkSize":2000,"deckCorrection":false,"halo":{"strategy":"automatic","minimumMeters":4000,"maximumMeters":15000,"structureAllowanceMeters":80,"safetyMeters":750,"lateralMeters":50}}

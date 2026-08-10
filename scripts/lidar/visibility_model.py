@@ -56,10 +56,16 @@ class RasterGeometry:
 
 
 def sanitize_elevation(values: NDArray[np.float32]) -> NDArray[np.float32]:
-    """Return Paris-plausible elevations, with service no-data as NaN."""
+    """Return France-plausible elevations, with service no-data as NaN.
+
+    Metropolitan and overseas French terrain ranges from below sea level to
+    above 4,800 metres.  The former Paris-only 1,000 m ceiling silently erased
+    valid Alpine and Pyrenean terrain, so the generic model uses deliberately
+    broad physical bounds while still rejecting IGN sentinel values.
+    """
 
     return np.where(
-        np.isfinite(values) & (values > -200) & (values < 1_000),
+        np.isfinite(values) & (values > -500) & (values < 5_000),
         values,
         np.nan,
     ).astype(np.float32, copy=False)
@@ -245,6 +251,14 @@ def _shift_north(values: NDArray[np.float32], rows: int) -> NDArray[np.float32]:
     return shifted
 
 
+def _shift_north_valid(values: NDArray[np.bool_], rows: int) -> NDArray[np.bool_]:
+    if rows == 0:
+        return values
+    shifted = np.zeros_like(values, dtype=bool)
+    shifted[rows:] = values[:-rows]
+    return shifted
+
+
 def classify_visibility(
     mnt: NDArray[np.float32],
     mns: NDArray[np.float32],
@@ -314,6 +328,10 @@ def classify_visibility(
         dtype=np.uint8,
     )
     support_previous = np.full((3, height), -np.inf, dtype=np.float32)
+    # Missing MNT or MNS anywhere on the sunward ray makes the answer unknown.
+    # It must not behave like negative infinity, otherwise a LiDAR coverage
+    # hole would manufacture clear yellow cells immediately behind it.
+    ray_valid_previous = np.ones(height, dtype=bool)
     cumulative_shift_previous = 0
 
     for column in range(1, width):
@@ -322,7 +340,12 @@ def classify_visibility(
         if row_shift not in (0, 1):
             raise RuntimeError("Unexpected digital-ray row shift")
 
+        predecessor_terrain = sanitize_elevation(mnt[:, column - 1])
         predecessor_surface = sanitize_elevation(mns[:, column - 1])
+        predecessor_valid = _shift_north_valid(
+            np.isfinite(predecessor_terrain) & np.isfinite(predecessor_surface),
+            row_shift,
+        )
         predecessor_surface = np.where(
             np.isfinite(predecessor_surface), predecessor_surface, -np.inf
         ).astype(np.float32, copy=False)
@@ -334,6 +357,9 @@ def classify_visibility(
         support_current = np.maximum(
             predecessor_surface[np.newaxis, :], support_shifted
         ) - slope_loss[:, np.newaxis]
+        ray_valid_current = predecessor_valid & _shift_north_valid(
+            ray_valid_previous, row_shift
+        )
 
         if column_start <= column < column_stop:
             terrain = sanitize_elevation(mnt[row_start:row_stop, column])
@@ -350,6 +376,7 @@ def classify_visibility(
                 np.isfinite(terrain)
                 & np.isfinite(surface)
                 & np.isfinite(support[2])
+                & ray_valid_current[row_start:row_stop]
             )
 
             robustly_clear = valid & (eye >= support[0])
@@ -368,6 +395,7 @@ def classify_visibility(
             output[:, column - column_start] = result
 
         support_previous = support_current
+        ray_valid_previous = ray_valid_current
         cumulative_shift_previous = cumulative_shift
         if progress and (column % 250 == 0 or column == width - 1):
             progress(column, width)

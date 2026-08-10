@@ -15,7 +15,7 @@ export default defineConfig({
       manifest: {
         name: 'Éclipse 2026 — Où regarder ?',
         short_name: 'Éclipse 2026',
-        description: 'Trouvez la direction exacte de l’éclipse solaire du 12 août 2026 depuis la France.',
+        description: 'Visualisez l’éclipse solaire du 12 août 2026 depuis n’importe quel lieu dans le monde.',
         theme_color: '#07101f',
         background_color: '#07101f',
         display: 'standalone',

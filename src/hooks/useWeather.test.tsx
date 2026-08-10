@@ -73,6 +73,7 @@ describe('useWeather', () => {
       await vi.advanceTimersByTimeAsync(251)
     })
     expect(result.current.status).toBe('ready')
+    expect(result.current.timeZone).toBe('Europe/Paris')
     expect(weatherMocks.fetchWeatherDay).toHaveBeenCalledTimes(1)
 
     rerender({ selectedTime: new Date('2026-08-12T18:42:00Z') })
@@ -98,5 +99,36 @@ describe('useWeather', () => {
       expect.any(Date),
       expect.objectContaining({ signal: expect.any(AbortSignal) }),
     )
+  })
+
+  it('drops the previous forecast and time zone as soon as the location changes', async () => {
+    const tokyoDay: WeatherDayForecast = {
+      ...DAY,
+      latitude: 35.68,
+      longitude: 139.65,
+      timezone: 'Asia/Tokyo',
+      utcOffsetSeconds: 32_400,
+    }
+    weatherMocks.fetchWeatherDay
+      .mockResolvedValueOnce(DAY)
+      .mockResolvedValueOnce(tokyoDay)
+    const { result, rerender } = renderHook(
+      ({ lat, lng }) => useWeather({ lat, lng }, new Date('2026-08-12T18:17:00Z')),
+      { initialProps: { lat: 48.8566, lng: 2.3522 } },
+    )
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(251)
+    })
+    expect(result.current.timeZone).toBe('Europe/Paris')
+
+    rerender({ lat: 35.6762, lng: 139.6503 })
+    expect(result.current.timeZone).toBeNull()
+    expect(result.current.snapshot).toBeNull()
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(251)
+    })
+    expect(result.current.timeZone).toBe('Asia/Tokyo')
   })
 })

@@ -1,6 +1,7 @@
 export const WEATHER = {
   endpoint: 'https://api.open-meteo.com/v1/forecast',
-  timezone: 'Europe/Paris',
+  timezone: 'auto',
+  timeformat: 'unixtime',
   requestDebounceMilliseconds: 250,
   requestTimeoutMilliseconds: 8_000,
   cacheDurationMilliseconds: 15 * 60 * 1_000,

@@ -12,6 +12,7 @@ const snapshot = {
   obscuration: 0.92,
   phaseLabel: 'Maximum',
   circumstances: {
+    visible: true,
     begin: { time: new Date('2026-08-12T17:22:00.000Z'), altitude: 16 },
     maximum: { time: new Date('2026-08-12T18:17:00.000Z'), altitude: 8 },
     end: { time: new Date('2026-08-12T19:09:00.000Z'), altitude: 0 },
@@ -40,6 +41,7 @@ describe('Timeline', () => {
       <Timeline
         minute={62}
         snapshot={snapshot}
+        timeZone="Europe/Paris"
         onMinuteChange={onMinuteChange}
         playback={playback()}
       />,
@@ -62,6 +64,7 @@ describe('Timeline', () => {
       <Timeline
         minute={62}
         snapshot={snapshot}
+        timeZone="Europe/Paris"
         onMinuteChange={vi.fn()}
         playback={controller}
       />,
@@ -77,6 +80,7 @@ describe('Timeline', () => {
       <Timeline
         minute={8.375}
         snapshot={snapshot}
+        timeZone="Europe/Paris"
         onMinuteChange={onMinuteChange}
         playback={playback(true)}
       />,
@@ -94,6 +98,7 @@ describe('Timeline', () => {
       <Timeline
         minute={62}
         snapshot={snapshot}
+        timeZone="Europe/Paris"
         onMinuteChange={vi.fn()}
         playback={controller}
       />,
@@ -101,5 +106,40 @@ describe('Timeline', () => {
 
     fireEvent.pointerDown(screen.getByRole('slider', { name: 'Heure simulée' }))
     expect(controller.stopPlayback).toHaveBeenCalledOnce()
+  })
+
+  it('formats every contact in the selected location time zone', () => {
+    render(
+      <Timeline
+        minute={62}
+        snapshot={snapshot}
+        timeZone="America/New_York"
+        onMinuteChange={vi.fn()}
+        playback={playback()}
+      />,
+    )
+
+    expect(screen.getAllByText('14:17')).toHaveLength(2)
+    expect(screen.getByText('13:22')).toBeInTheDocument()
+    expect(screen.getByText('15:09')).toBeInTheDocument()
+  })
+
+  it('replaces controls with an honest message outside the eclipse footprint', () => {
+    const invisible = {
+      ...snapshot,
+      circumstances: { ...snapshot.circumstances, visible: false, kind: 'none' },
+    }
+    render(
+      <Timeline
+        minute={62}
+        snapshot={invisible}
+        timeZone="Asia/Tokyo"
+        onMinuteChange={vi.fn()}
+        playback={playback()}
+      />,
+    )
+
+    expect(screen.getByText('Éclipse non visible depuis ce lieu')).toBeInTheDocument()
+    expect(screen.queryByRole('slider')).not.toBeInTheDocument()
   })
 })

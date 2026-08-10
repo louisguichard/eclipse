@@ -2,9 +2,9 @@ import type { EclipseSnapshot } from '../types'
 
 /**
  * Street View panoramas are shot in flat daylight. The eclipse of 12 August
- * 2026 is a low-sun event over France, so the real scene will look nothing
- * like the stored photograph: warm and raking near the horizon, then rapidly
- * colder and dimmer as the Moon eats the disc.
+ * 2026 often occurs with the Sun low over Europe and North Africa, so the real
+ * scene can look unlike the stored photograph: warm near the horizon, then
+ * rapidly colder and dimmer as the Moon eats the disc.
  *
  * `gradeTwilight` turns a snapshot into the handful of numbers the overlay
  * needs to reproduce that. Everything is derived, never toggled by hand, so

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import unittest
 from io import BytesIO
 from pathlib import Path
@@ -17,11 +18,21 @@ from visibility_model import (
     classify_visibility,
     detect_deck_cells,
     estimate_water_planes,
+    sanitize_elevation,
+)
+from region_pipeline import (
+    EclipseGeometry,
+    boundary_centroid,
+    derive_halo,
+    official_boundary_url,
+    polygon_features,
 )
 from generate_paris_visibility import (
     CLEAR_TILE_COLOR,
     RENDER_DILATION_CELLS,
+    _source_tier_counts,
     encode_visibility_tile,
+    merge_elevation_sources,
     render_dilation_cells,
     write_visibility_tile,
 )
@@ -125,6 +136,177 @@ class VisibilityModelTests(unittest.TestCase):
             slice(8, 9),
         )
         self.assertEqual(result[0, 0], CLASS_NO_DATA)
+
+    def test_missing_sunward_profile_is_never_clear(self) -> None:
+        mnt = np.zeros((8, 16), dtype=np.float32)
+        mns = mnt.copy()
+        mns[3, 4] = np.nan
+        result = classify_visibility(
+            mnt, mns, self.geometry, self.solar, slice(4, 5), slice(8, 9)
+        )
+        self.assertEqual(result[0, 0], CLASS_NO_DATA)
+
+    def test_french_mountain_elevations_are_valid(self) -> None:
+        values = np.asarray([-9999, -250, 1500, 4800, 6000], dtype=np.float32)
+        result = sanitize_elevation(values)
+        self.assertTrue(np.isnan(result[0]))
+        self.assertTrue(np.isfinite(result[1:4]).all())
+        self.assertTrue(np.isnan(result[4]))
+
+
+class RegionalPipelineTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.geometry = RasterGeometry(pixel_east_meters=1, pixel_north_meters=1)
+        self.solar = SolarGeometry(
+            azimuth_degrees=284,
+            altitude_degrees=45,
+            angular_radius_degrees=0,
+            model_margin_degrees=0,
+        )
+
+    def test_department_url_uses_official_geo_api(self) -> None:
+        self.assertEqual(
+            official_boundary_url("department", "77"),
+            "https://geo.api.gouv.fr/departements/77/communes?format=geojson&geometry=contour",
+        )
+
+    def test_feature_collection_and_centroid_are_supported(self) -> None:
+        boundary = {
+            "type": "FeatureCollection",
+            "features": [
+                {"type": "Feature", "properties": {}, "geometry": {
+                    "type": "Polygon",
+                    "coordinates": [[[2.0, 48.0], [3.0, 48.0], [3.0, 49.0], [2.0, 49.0], [2.0, 48.0]]],
+                }}
+            ],
+        }
+        self.assertEqual(len(list(polygon_features(boundary))), 1)
+        centroid = boundary_centroid(boundary)
+        self.assertAlmostEqual(centroid.longitude, 2.5, delta=0.02)
+        self.assertAlmostEqual(centroid.latitude, 48.5, delta=0.02)
+
+    def test_low_sun_and_relief_expand_the_automatic_halo(self) -> None:
+        eclipse = EclipseGeometry(
+            "2026-08-01T00:00:00.000Z", "partial", 0.9,
+            "begin", "peak", "end", 285, 4.7, 0.263,
+        )
+        flat = derive_halo(eclipse, 20, {}, 0.5)
+        hilly = derive_halo(eclipse, 500, {}, 0.5)
+        self.assertEqual(flat.sunward_meters, 4000)
+        self.assertGreater(hilly.sunward_meters, flat.sunward_meters)
+        self.assertLessEqual(hilly.sunward_meters, 15000)
+
+    def test_fallback_fills_only_invalid_lidar_cells_and_counts_tiers(self) -> None:
+        primary = np.asarray([[25, -9999], [np.nan, 42]], dtype=np.float32)
+        fallback = np.asarray([[99, 30], [-9999, 88]], dtype=np.float32)
+        merged, counts = merge_elevation_sources(primary, fallback)
+        np.testing.assert_array_equal(merged, [[25, 30], [np.nan, 42]])
+        self.assertEqual(counts, {"lidar": 2, "fallback": 1, "noData": 1})
+
+    def test_source_counts_merge_download_shards_without_double_counting(self) -> None:
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "mns-download.json").write_text(json.dumps({
+                "sourceCellsByChunk": {
+                    "0:0": {"lidar": 4, "fallback": 0, "noData": 0},
+                },
+            }), encoding="utf-8")
+            (root / "mns-download-shard-1-of-2.json").write_text(json.dumps({
+                "sourceCellsByChunk": {
+                    "0:0": {"lidar": 4, "fallback": 0, "noData": 0},
+                    "0:2": {"lidar": 1, "fallback": 2, "noData": 1},
+                },
+            }), encoding="utf-8")
+
+            totals = _source_tier_counts(root)
+
+            self.assertEqual(
+                totals["mns"],
+                {"lidar": 5, "fallback": 2, "noData": 1},
+            )
+
+    def test_mnt_gap_invalidates_every_downstream_profile(self) -> None:
+        mnt = np.zeros((10, 12), dtype=np.float32)
+        mns = mnt.copy()
+        mnt[:, 4] = np.nan
+
+        result = classify_visibility(
+            mnt,
+            mns,
+            self.geometry,
+            self.solar,
+            slice(6, 7),
+            slice(2, 10),
+        )[0]
+
+        # Valid observers before the gap remain usable. The cell on the gap
+        # and every later observer whose sunward profile crosses it are not.
+        np.testing.assert_array_equal(
+            result,
+            np.asarray(
+                [
+                    CLASS_CLEAR,
+                    CLASS_CLEAR,
+                    CLASS_NO_DATA,
+                    CLASS_NO_DATA,
+                    CLASS_NO_DATA,
+                    CLASS_NO_DATA,
+                    CLASS_NO_DATA,
+                    CLASS_NO_DATA,
+                ],
+                dtype=np.uint8,
+            ),
+        )
+
+    def test_mns_gap_invalidates_every_downstream_profile(self) -> None:
+        mnt = np.zeros((10, 12), dtype=np.float32)
+        mns = mnt.copy()
+        mns[:, 4] = np.nan
+
+        result = classify_visibility(
+            mnt,
+            mns,
+            self.geometry,
+            self.solar,
+            slice(6, 7),
+            slice(2, 10),
+        )[0]
+
+        np.testing.assert_array_equal(
+            result,
+            np.asarray(
+                [
+                    CLASS_CLEAR,
+                    CLASS_CLEAR,
+                    CLASS_NO_DATA,
+                    CLASS_NO_DATA,
+                    CLASS_NO_DATA,
+                    CLASS_NO_DATA,
+                    CLASS_NO_DATA,
+                    CLASS_NO_DATA,
+                ],
+                dtype=np.uint8,
+            ),
+        )
+
+    def test_no_data_outside_the_sunward_profile_does_not_poison_it(self) -> None:
+        mnt = np.zeros((10, 12), dtype=np.float32)
+        mns = mnt.copy()
+        # The digital ray from row 6 / column 8 remains around rows 4--6.
+        # A coverage hole on the far northern row is unrelated to that ray.
+        mnt[0, 4] = np.nan
+        mns[0, 4] = np.nan
+
+        result = classify_visibility(
+            mnt,
+            mns,
+            self.geometry,
+            self.solar,
+            slice(6, 7),
+            slice(8, 9),
+        )
+
+        self.assertEqual(result[0, 0], CLASS_CLEAR)
 
 
 class WaterPlaneTests(unittest.TestCase):

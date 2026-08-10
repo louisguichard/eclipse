@@ -35,6 +35,7 @@ const snapshot = {
   sun: { azimuth: 284, altitude: 7.8 },
   moon: { azimuth: 284, altitude: 7.8 },
   circumstances: {
+    visible: true,
     begin: { time: new Date('2026-08-12T17:22:00.000Z'), altitude: 16 },
     maximum: { time: new Date('2026-08-12T18:17:00.000Z'), altitude: 8 },
     end: { time: new Date('2026-08-12T19:09:00.000Z'), altitude: 0 },
@@ -61,6 +62,7 @@ vi.mock('./hooks/useWeather', () => ({
     status: 'ready',
     error: null,
     refresh: vi.fn(),
+    timeZone: 'Europe/Paris',
     snapshot: { cloudCover: 10 },
   }),
 }))

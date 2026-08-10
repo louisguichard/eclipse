@@ -13,6 +13,7 @@ const snapshot = {
   sunAngularRadius: 0.263,
   moonAngularRadius: 0.272,
   moonOffset: { horizontal: -0.009, vertical: -0.044 },
+  circumstances: { visible: true },
 } as EclipseSnapshot
 
 afterEach(cleanup)
@@ -30,5 +31,20 @@ describe('EclipseInfo', () => {
       'href',
       'https://open-meteo.com/',
     )
+  })
+
+  it('explains when the 2026 eclipse is not observable at this location', () => {
+    render(
+      <EclipseInfo
+        snapshot={{
+          ...snapshot,
+          circumstances: { ...snapshot.circumstances, visible: false },
+        }}
+      />,
+    )
+
+    expect(screen.getByText('Non visible ici')).toBeInTheDocument()
+    expect(screen.getByText(/12 août 2026/)).toBeInTheDocument()
+    expect(screen.queryByText('92 %')).not.toBeInTheDocument()
   })
 })

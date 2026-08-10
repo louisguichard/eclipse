@@ -10,6 +10,7 @@ import { MobileDialTimeline } from './MobileDialTimeline'
 const snapshot = {
   date: new Date('2026-08-12T18:17:00.000Z'),
   circumstances: {
+    visible: true,
     begin: { time: new Date('2026-08-12T17:22:00.000Z'), altitude: 16 },
     maximum: { time: new Date('2026-08-12T18:17:00.000Z'), altitude: 8 },
     end: { time: new Date('2026-08-12T19:09:00.000Z'), altitude: 0 },
@@ -38,6 +39,7 @@ describe('MobileDialTimeline', () => {
       <MobileDialTimeline
         minute={62}
         snapshot={snapshot}
+        timeZone="Europe/Paris"
         onMinuteChange={onMinuteChange}
         playback={playback()}
       />,
@@ -61,6 +63,7 @@ describe('MobileDialTimeline', () => {
       <MobileDialTimeline
         minute={62}
         snapshot={snapshot}
+        timeZone="Europe/Paris"
         onMinuteChange={vi.fn()}
         playback={controller}
       />,
@@ -75,6 +78,7 @@ describe('MobileDialTimeline', () => {
       <MobileDialTimeline
         minute={62}
         snapshot={snapshot}
+        timeZone="Europe/Paris"
         blocked
         onMinuteChange={vi.fn()}
         playback={playback()}
@@ -83,5 +87,25 @@ describe('MobileDialTimeline', () => {
 
     expect(screen.getByRole('slider', { name: 'Heure de l’éclipse', hidden: true })).toHaveAttribute('tabindex', '-1')
     expect(screen.getByRole('button', { name: 'Lire l’éclipse' })).toBeDisabled()
+  })
+
+  it('does not expose simulation controls where the eclipse is not visible', () => {
+    const invisible = {
+      ...snapshot,
+      circumstances: { ...snapshot.circumstances, visible: false, kind: 'none' },
+    }
+    render(
+      <MobileDialTimeline
+        minute={62}
+        snapshot={invisible}
+        timeZone="Australia/Sydney"
+        onMinuteChange={vi.fn()}
+        playback={playback()}
+      />,
+    )
+
+    expect(screen.getByText('Éclipse non visible ici')).toBeInTheDocument()
+    expect(screen.queryByRole('slider')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button')).not.toBeInTheDocument()
   })
 })

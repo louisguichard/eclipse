@@ -8,7 +8,12 @@ import {
   SearchLocalSolarEclipse,
   SearchRiseSet,
 } from 'astronomy-engine'
-import { MOON_POLAR_RADIUS_KM, SUN_RADIUS_KM, TIMELINE } from '../config/eclipse'
+import {
+  ECLIPSE_GLOBAL_PEAK_UTC,
+  MOON_POLAR_RADIUS_KM,
+  SUN_RADIUS_KM,
+  TIMELINE,
+} from '../config/eclipse'
 import type {
   EclipseCircumstances,
   EclipseSnapshot,
@@ -19,6 +24,7 @@ import type {
 const RAD_TO_DEG = 180 / Math.PI
 const DEG_TO_RAD = Math.PI / 180
 const ECLIPSE_SEARCH_START = new Date('2026-08-01T00:00:00.000Z')
+const TARGET_ECLIPSE_TOLERANCE_MS = 12 * 60 * 60 * 1_000
 const circumstancesCache = new Map<string, EclipseCircumstances>()
 const sunsetCache = new Map<string, Date | null>()
 
@@ -33,7 +39,7 @@ function locationCacheKey(location: LatLng): string {
  */
 export function dateFromTimelineMinute(minute: number): Date {
   const safeMinute = Number.isFinite(minute)
-    ? Math.max(0, Math.min(TIMELINE.totalMinutes, minute))
+    ? Math.max(TIMELINE.minMinute, Math.min(TIMELINE.maxMinute, minute))
     : TIMELINE.defaultMinute
   return new Date(
     TIMELINE.startUtc.getTime() + Math.round(safeMinute * 60_000),
@@ -65,18 +71,104 @@ export function sunHorizontalCoordinates(
   return bodyHorizontalCoordinates(Body.Sun, location, date)
 }
 
+function eclipseEventAt(location: LatLng, time: Date) {
+  return {
+    time,
+    altitude: sunHorizontalCoordinates(location, time).altitude,
+  }
+}
+
+function invisibleCircumstances(
+  location: LatLng,
+  theoretical?: NonNullable<EclipseCircumstances['theoretical']>,
+): EclipseCircumstances {
+  return {
+    visible: false,
+    begin: eclipseEventAt(location, new Date(TIMELINE.rangeStartUtc)),
+    maximum: eclipseEventAt(location, new Date(ECLIPSE_GLOBAL_PEAK_UTC)),
+    end: eclipseEventAt(location, new Date(TIMELINE.endUtc)),
+    peakObscuration: 0,
+    kind: 'none',
+    theoretical,
+  }
+}
+
 export function localEclipseCircumstances(location: LatLng): EclipseCircumstances {
   const cacheKey = locationCacheKey(location)
   const cached = circumstancesCache.get(cacheKey)
   if (cached) return cached
   const observer = new Observer(location.lat, location.lng, 0)
   const result = SearchLocalSolarEclipse(ECLIPSE_SEARCH_START, observer)
-  const circumstances = {
-    begin: { time: result.partial_begin.time.date, altitude: result.partial_begin.altitude },
+  const theoretical = {
+    begin: {
+      time: result.partial_begin.time.date,
+      altitude: result.partial_begin.altitude,
+    },
     maximum: { time: result.peak.time.date, altitude: result.peak.altitude },
-    end: { time: result.partial_end.time.date, altitude: result.partial_end.altitude },
+    end: {
+      time: result.partial_end.time.date,
+      altitude: result.partial_end.altitude,
+    },
     peakObscuration: result.obscuration,
-    kind: result.kind,
+    kind: String(result.kind),
+  }
+
+  // SearchLocalSolarEclipse finds the next locally visible event. Outside the
+  // 2026 footprint that can be an eclipse years later, which must never leak
+  // into this app's timeline.
+  if (
+    Math.abs(result.peak.time.date.getTime() - ECLIPSE_GLOBAL_PEAK_UTC.getTime())
+      > TARGET_ECLIPSE_TOLERANCE_MS
+  ) {
+    const circumstances = invisibleCircumstances(location)
+    circumstancesCache.set(cacheKey, circumstances)
+    return circumstances
+  }
+
+  let observableBegin = theoretical.begin.time
+  let observableEnd = theoretical.end.time
+  const searchDays = Math.max(
+    0.25,
+    (observableEnd.getTime() - observableBegin.getTime()) / 86_400_000 + 0.1,
+  )
+
+  if (theoretical.begin.altitude <= 0) {
+    const sunrise = SearchRiseSet(Body.Sun, observer, +1, observableBegin, searchDays)
+    if (!sunrise || sunrise.date >= observableEnd) {
+      const circumstances = invisibleCircumstances(location, theoretical)
+      circumstancesCache.set(cacheKey, circumstances)
+      return circumstances
+    }
+    observableBegin = sunrise.date
+  }
+
+  if (theoretical.end.altitude <= 0) {
+    const sunset = SearchRiseSet(Body.Sun, observer, -1, observableBegin, searchDays)
+    if (sunset && sunset.date < observableEnd) observableEnd = sunset.date
+  }
+
+  if (observableBegin >= observableEnd) {
+    const circumstances = invisibleCircumstances(location, theoretical)
+    circumstancesCache.set(cacheKey, circumstances)
+    return circumstances
+  }
+
+  const observableMaximumTime = new Date(Math.max(
+    observableBegin.getTime(),
+    Math.min(observableEnd.getTime(), theoretical.maximum.time.getTime()),
+  ))
+  const observableGeometry = eclipseGeometry(location, observableMaximumTime)
+  const clippedAtHorizon = observableMaximumTime.getTime() !== theoretical.maximum.time.getTime()
+  const circumstances: EclipseCircumstances = {
+    visible: true,
+    begin: eclipseEventAt(location, observableBegin),
+    maximum: eclipseEventAt(location, observableMaximumTime),
+    end: eclipseEventAt(location, observableEnd),
+    peakObscuration: observableGeometry.obscuration,
+    kind: clippedAtHorizon && observableGeometry.obscuration < 0.9999
+      ? 'partial'
+      : theoretical.kind,
+    theoretical,
   }
   circumstancesCache.set(cacheKey, circumstances)
   return circumstances
@@ -85,8 +177,13 @@ export function localEclipseCircumstances(location: LatLng): EclipseCircumstance
 export function localSunset(location: LatLng): Date | null {
   const cacheKey = locationCacheKey(location)
   if (sunsetCache.has(cacheKey)) return sunsetCache.get(cacheKey) ?? null
+  const circumstances = localEclipseCircumstances(location)
+  if (!circumstances.visible) {
+    sunsetCache.set(cacheKey, null)
+    return null
+  }
   const observer = new Observer(location.lat, location.lng, 0)
-  const sunset = SearchRiseSet(Body.Sun, observer, -1, new Date('2026-08-12T00:00:00.000Z'), 1)
+  const sunset = SearchRiseSet(Body.Sun, observer, -1, circumstances.begin.time, 2)
   const sunsetDate = sunset?.date ?? null
   sunsetCache.set(cacheKey, sunsetDate)
   return sunsetDate
@@ -124,6 +221,7 @@ export function circleOverlapFraction(
 }
 
 function phaseLabel(date: Date, circumstances: EclipseCircumstances): string {
+  if (!circumstances.visible) return 'Éclipse non visible ici'
   const time = date.getTime()
   const begin = circumstances.begin.time.getTime()
   const maximum = circumstances.maximum.time.getTime()
@@ -138,10 +236,10 @@ function phaseLabel(date: Date, circumstances: EclipseCircumstances): string {
   return time < maximum ? 'L’éclipse progresse' : 'L’éclipse décroît'
 }
 
-export function calculateEclipseSnapshot(
+function eclipseGeometry(
   location: LatLng,
   date: Date,
-): EclipseSnapshot {
+): Omit<EclipseSnapshot, 'date' | 'circumstances' | 'sunset' | 'phaseLabel'> {
   const observer = new Observer(location.lat, location.lng, 0)
   const sunEquatorial = Equator(Body.Sun, date, observer, true, true)
   const moonEquatorial = Equator(Body.Moon, date, observer, true, true)
@@ -176,7 +274,6 @@ export function calculateEclipseSnapshot(
     0,
     (sunAngularRadius + moonAngularRadius - centerSeparation) / (2 * sunAngularRadius),
   )
-  const circumstances = localEclipseCircumstances(location)
   const sunAzimuth = sunHorizontal.azimuth * DEG_TO_RAD
   const sunAltitude = sunHorizontal.altitude * DEG_TO_RAD
   const moonAzimuth = moonHorizontal.azimuth * DEG_TO_RAD
@@ -205,7 +302,6 @@ export function calculateEclipseSnapshot(
     RAD_TO_DEG
 
   return {
-    date,
     sun: { altitude: sunHorizontal.altitude, azimuth: sunHorizontal.azimuth },
     moon: { altitude: moonHorizontal.altitude, azimuth: moonHorizontal.azimuth },
     sunAngularRadius,
@@ -217,6 +313,17 @@ export function calculateEclipseSnapshot(
       horizontal: azimuthOffset,
       vertical: altitudeOffset,
     },
+  }
+}
+
+export function calculateEclipseSnapshot(
+  location: LatLng,
+  date: Date,
+): EclipseSnapshot {
+  const circumstances = localEclipseCircumstances(location)
+  return {
+    date,
+    ...eclipseGeometry(location, date),
     circumstances,
     sunset: localSunset(location),
     phaseLabel: phaseLabel(date, circumstances),
