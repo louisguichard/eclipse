@@ -17,6 +17,76 @@ son jeu existant à 2 m.
 npm run lidar:idf -- --stage all
 ```
 
+## Lot des 20 plus grandes unités urbaines
+
+Le catalogue `urban_units_top20.json` suit les unités urbaines 2020 de l’INSEE
+au 1er janvier 2026. Paris (`00851`) n’est pas recalculée : sa couverture est
+déjà fournie par Paris et les sept départements franciliens. Le lot ajoute donc
+les 19 unités suivantes à 5 m, avec un identifiant stable `uu-<code INSEE>` et
+une version `uu-<code INSEE>-2026-max-v1` :
+
+| Rang national | Unité urbaine | Identifiant |
+| ---: | --- | --- |
+| 2 | Lyon | `uu-00760` |
+| 3 | Marseille–Aix-en-Provence | `uu-00759` |
+| 4 | Toulouse | `uu-00758` |
+| 5 | Lille (partie française) | `uu-59702` |
+| 6 | Bordeaux | `uu-33701` |
+| 7 | Nice | `uu-06701` |
+| 8 | Nantes | `uu-44701` |
+| 9 | Toulon | `uu-00757` |
+| 10 | Douai–Lens | `uu-00756` |
+| 11 | Strasbourg (partie française) | `uu-67701` |
+| 12 | Montpellier | `uu-34701` |
+| 13 | Rouen | `uu-00755` |
+| 14 | Avignon | `uu-00754` |
+| 15 | Grenoble | `uu-38701` |
+| 16 | Rennes | `uu-35701` |
+| 17 | Saint-Étienne | `uu-00753` |
+| 18 | Tours | `uu-37701` |
+| 19 | Béthune | `uu-00752` |
+| 20 | Valenciennes (partie française) | `uu-59701` |
+
+Le masque de chaque unité est construit en deux temps : la composition
+communale vient du fond officiel INSEE, puis les géométries sont prises dans
+les contours administratifs Etalab 2026 des communes, en précision 5 m. Les
+deux archives sont verrouillées par SHA-256 avant assemblage.
+
+Depuis un environnement Python activé, préparez les contours puis exécutez
+l’orchestrateur :
+
+```bash
+# Télécharge, vérifie et assemble les 19 contours ; Paris reste exclue.
+npm run lidar:urban-boundaries
+
+# Exécution complète, reprenable entre les étapes et entre les blocs WMS.
+npm run lidar:urban-units -- --stage all
+
+# Ou progression explicite, utile pour contrôler espace disque et journaux.
+npm run lidar:urban-units -- --stage prepare
+npm run lidar:urban-units -- --stage download
+npm run lidar:urban-units -- --stage classify
+npm run lidar:urban-units -- --stage tiles
+
+# Sous-ensemble accepté par code, identifiant ou slug.
+npm run lidar:urban-units -- --stage all --units uu-34701 uu-35701
+```
+
+L’orchestrateur pose une barrière globale après chaque étape : aucune unité
+encore active ne passe à l’étape suivante avant la fin de l’étape courante.
+Avec `--jobs 4` (valeur par défaut), les plafonds de sécurité sont
+`prepare=4`, `download=2`, `classify=1` et `tiles=1`. Ils limitent la pression
+sur le service IGN pendant les téléchargements et la mémoire/les entrées-sorties
+pendant le calcul. Une unité en échec est isolée, les autres continuent, puis
+la commande termine avec un code d’erreur récapitulatif.
+
+Chaque téléchargement conserve un état atomique par unité et par raster. Une
+relance de la même commande saute les blocs déjà validés ; la signature de
+grille empêche aussi de mélanger une ancienne résolution ou une ancienne
+emprise avec le nouveau calcul. Ne lancez jamais deux processus sur le même
+couple unité/raster. Les dossiers versionnés sont produits localement sous
+`data/lidar/publish/` : l’orchestrateur ne les envoie pas sur R2.
+
 Chaque configuration peut aussi pointer vers un GeoJSON local (`boundary.type
 = file`), une URL GeoJSON ou un code officiel commune/département/région. Le
 maximum local, l’azimut, l’altitude et le rayon solaire sont calculés au
@@ -106,6 +176,17 @@ Le masque de Paris provient de l’API officielle `geo.api.gouv.fr`, commune INS
 <https://geo.api.gouv.fr/communes/75056?format=geojson&geometry=contour>
 
 Le GeoJSON est mis en cache dans `data/lidar/paris/paris-boundary.geojson` pour rendre les reprises déterministes.
+
+### Composition et contours des unités urbaines
+
+Pour le lot hors Paris, la liste des communes de chaque unité provient du fond
+officiel [INSEE — unités urbaines 2020 au 1er janvier
+2026](https://www.insee.fr/fr/information/4802589). Le contour généralisé de
+l’unité n’est pas utilisé comme masque raster : le script assemble à la place
+les [contours administratifs Etalab 2026 des communes, précision
+5 m](https://etalab-datasets.geo.data.gouv.fr/contours-administratifs/2026/geojson/communes-5m.geojson.gz).
+Les archives vérifiées sont conservées dans `data/lidar/sources/`, et les
+GeoJSON résultants dans `data/lidar/urban-units/boundaries/`.
 
 ## Prérequis
 
@@ -203,6 +284,31 @@ contenu à publier sur R2. Elle omet 18 020 tuiles transparentes. Les fichiers
 locaux MNT/MNS/classes occupent plusieurs gigaoctets pendant le calcul, mais ne
 sont ni versionnés ni envoyés au navigateur.
 
+La préparation des 19 unités urbaines hors Paris à 5 m donne les totaux
+suivants, halos de visibilité compris :
+
+| Élément | Total préparé |
+| --- | ---: |
+| cellules des 19 grilles | `1.984 Gpx` |
+| entrées MNT + MNS float32 | `14.79 GiB` |
+| classes uint8 produites sur les emprises de sortie | `1.10 GiB` |
+| PNG XYZ non vides générés | `25 402` (`32,14 MB`) |
+| PNG entièrement transparents omis | `35 500` |
+
+Les tailles de grille décrivent les fichiers intermédiaires théoriques ; les
+comptes PNG et leur volume ont été vérifiés après la génération locale du
+10 août 2026. Les 19 dossiers versionnés ont ensuite été publiés sur R2 sous
+`visibility/uu-<code>-2026-max-v1/` et contrôlés via le domaine public :
+manifeste, CORS, cache immuable et trois tuiles échantillons par jeu.
+
+Le halo automatique a atteint sa limite configurée de 15 km pour
+Marseille–Aix, Nice, Toulon, Avignon, Grenoble et Saint-Étienne. Les manifestes
+conservent `halo.capped = true` pour ces six jeux. Bien qu’ils aient été publiés
+sur demande, ils nécessitent toujours une revue du relief amont ; une correction
+devra être publiée sous une nouvelle version immuable plutôt que d’écraser la
+`v1`. Ce contrôle est particulièrement important pour Nice et Grenoble, où le
+dégagement probable est rare.
+
 Avec des blocs de 2 000 px, la grille actuelle produit 24 requêtes par raster, soit 48 requêtes WMS complètes pour le MNT et le MNS. La durée réelle dépend du débit IGN, du processeur et du stockage.
 
 ### Ordre de grandeur France entière
@@ -245,7 +351,7 @@ Le mot « probable » est intentionnel. Une cellule de couleur favorable ne disp
 
 ## Publication locale ou CDN
 
-Par défaut, Vite sert les tuiles incluses dans :
+Sans URL de CDN, Vite ne sert que les tuiles parisiennes incluses dans :
 
 ```text
 public/visibility/paris-2026-max-v1/{z}/{x}/{y}.png
@@ -257,13 +363,19 @@ Pour déléguer les fichiers à un CDN, définissez la base qui **contient** le 
 VITE_VISIBILITY_TILE_BASE_URL=https://cdn.example.fr/eclipse/visibility
 ```
 
-Le navigateur demandera alors :
+Le navigateur demandera alors, selon la zone :
 
 ```text
 https://cdn.example.fr/eclipse/visibility/paris-2026-max-v1/{z}/{x}/{y}.png
+https://cdn.example.fr/eclipse/visibility/uu-34701-2026-max-v1/{z}/{x}/{y}.png
 ```
 
-N’ajoutez donc pas `paris-2026-max-v1` dans la variable. Utilisez une URL HTTPS, configurez les en-têtes de cache immuables sur les dossiers versionnés et autorisez les origines nécessaires si le CDN applique une politique CORS. Le manifeste et l’attribution doivent être publiés avec les tuiles.
+N’ajoutez donc aucun nom de version dans la variable. Cette variable est
+nécessaire pour accéder aux couvertures régionales qui ne sont pas embarquées
+dans le bundle Vercel. Utilisez une URL HTTPS, configurez les en-têtes de cache
+immuables sur les dossiers versionnés et autorisez les origines nécessaires si
+le CDN applique une politique CORS. Le manifeste et l’attribution doivent être
+publiés avec les tuiles.
 
 Pour Cloudflare R2, utilisez le workflow validé dans
 [`scripts/r2/DEPLOYMENT.md`](../r2/DEPLOYMENT.md). Il conserve les secrets dans

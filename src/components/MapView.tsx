@@ -12,6 +12,7 @@ import {
   visibilityDatasetsForView,
 } from '../lib/visibilityTiles'
 import type { EclipseSnapshot, ObserverLocation } from '../types'
+import type { VisibilityDatasetManifest } from '../types/visibility'
 
 type MapViewProps = {
   observer: ObserverLocation
@@ -71,6 +72,61 @@ function DemoMap({
       <div className="demo-map__notice"><AlertTriangle size={14} /> {loadFailed ? 'Google Maps indisponible' : 'Carte de démonstration · clé requise'}</div>
       <span className="demo-map__location">{observer.label}</span>
     </div>
+  )
+}
+
+type VisibilityLegendProps = {
+  preferredVisibilityDataset?: VisibilityDatasetManifest | null
+  knownVisibilityDataset?: VisibilityDatasetManifest | null
+}
+
+function visibilitySourceLabel(manifest: VisibilityDatasetManifest): string {
+  const resolution = manifest.surface.resolutionMeters
+  return resolution === null
+    ? manifest.attribution
+    : `${manifest.attribution} · Résolution ${resolution} m`
+}
+
+export function VisibilityLegend({
+  preferredVisibilityDataset,
+  knownVisibilityDataset,
+}: VisibilityLegendProps) {
+  return (
+    <p
+      className={`map-legend ${preferredVisibilityDataset ? '' : 'map-legend--unavailable'}`}
+      title={
+        preferredVisibilityDataset?.disclaimer
+        ?? knownVisibilityDataset?.unavailableReason
+        ?? 'Aucune donnée de visibilité publiée pour cette zone.'
+      }
+    >
+      <span className="map-legend__swatch" aria-hidden="true" />
+      <span className="map-legend__copy">
+        <strong>{preferredVisibilityDataset ? 'En jaune : dégagement probable' : 'Zones de visibilité'}</strong>
+        <span>
+          {preferredVisibilityDataset
+            ? `${preferredVisibilityDataset.label} · ${
+                preferredVisibilityDataset.reference.mode === 'fixed-instant'
+                  ? formatLocalTime(
+                      new Date(preferredVisibilityDataset.reference.timeUtc!),
+                      'Europe/Paris',
+                    )
+                  : 'maximum local'
+              } · hors météo`
+            : knownVisibilityDataset
+              ? 'Données de visibilité momentanément indisponibles'
+              : 'Couche LiDAR disponible dans les 20 plus grandes agglomérations de France'}
+        </span>
+        {preferredVisibilityDataset?.warnings?.map((warning) => (
+          <span key={warning}>⚠ {warning}</span>
+        ))}
+      </span>
+      {preferredVisibilityDataset && (
+        <span className="map-legend__source">
+          {visibilitySourceLabel(preferredVisibilityDataset)}
+        </span>
+      )}
+    </p>
   )
 }
 
@@ -438,40 +494,10 @@ export function MapView({
       {status === 'loading' && (
         <div className="panel-loading" role="status"><span className="orb-loader" /> Chargement de la carte…</div>
       )}
-      <p
-        className={`map-legend ${preferredVisibilityDataset ? '' : 'map-legend--unavailable'}`}
-        title={
-          preferredVisibilityDataset?.disclaimer
-          ?? knownVisibilityDataset?.unavailableReason
-          ?? 'Aucune donnée de visibilité publiée pour cette zone.'
-        }
-      >
-        <span className="map-legend__swatch" aria-hidden="true" />
-        <span className="map-legend__copy">
-          <strong>{preferredVisibilityDataset ? 'Soleil probablement visible' : 'Zones de visibilité'}</strong>
-          <span>
-            {preferredVisibilityDataset
-              ? `${preferredVisibilityDataset.label} · ${
-                  preferredVisibilityDataset.reference.mode === 'fixed-instant'
-                    ? formatLocalTime(
-                        new Date(preferredVisibilityDataset.reference.timeUtc!),
-                        'Europe/Paris',
-                      )
-                    : 'maximum local'
-                } · hors météo`
-              : knownVisibilityDataset
-                ? 'Données de visibilité momentanément indisponibles'
-                : 'Couche LiDAR disponible en Île-de-France uniquement'}
-          </span>
-        </span>
-        {preferredVisibilityDataset && (
-          <span className="map-legend__source">
-            {preferredVisibilityDataset.id === 'paris-maximum-geometry'
-              ? '© IGN LiDAR HD · Licence Ouverte'
-              : '© IGN · 5 m · précision variable'}
-          </span>
-        )}
-      </p>
+      <VisibilityLegend
+        preferredVisibilityDataset={preferredVisibilityDataset}
+        knownVisibilityDataset={knownVisibilityDataset}
+      />
     </div>
   )
 }

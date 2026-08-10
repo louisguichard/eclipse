@@ -1,13 +1,16 @@
 from __future__ import annotations
 
+import argparse
 import json
 import unittest
 from io import BytesIO
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from unittest.mock import patch
 
 import numpy as np
 from PIL import Image
+from pyproj import Transformer
 
 from visibility_model import (
     CLASS_BLOCKED,
@@ -24,15 +27,35 @@ from region_pipeline import (
     EclipseGeometry,
     boundary_centroid,
     derive_halo,
+    load_region_definition,
     official_boundary_url,
     polygon_features,
 )
+from generate_urban_units_visibility import (
+    PROJECT_ROOT,
+    load_units,
+    run_pipeline,
+    run_unit,
+    select_units,
+    stage_worker_count,
+    validate_region_config,
+)
+from export_visibility_regions import load_visibility_regions, render_typescript
 from generate_paris_visibility import (
+    Bounds,
     CLEAR_TILE_COLOR,
+    GridDefinition,
+    MNS_FALLBACK_LAYER,
+    MNS_LAYER,
+    MNT_FALLBACK_LAYER,
+    MNT_LAYER,
     RENDER_DILATION_CELLS,
     _source_tier_counts,
+    download_signature,
     encode_visibility_tile,
+    ensure_downloads_complete,
     merge_elevation_sources,
+    rasterize_region_mask,
     render_dilation_cells,
     write_visibility_tile,
 )
@@ -170,6 +193,92 @@ class RegionalPipelineTests(unittest.TestCase):
             "https://geo.api.gouv.fr/departements/77/communes?format=geojson&geometry=contour",
         )
 
+    def test_file_boundary_is_resolved_relative_to_its_region_config(self) -> None:
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            config_dir = root / "regions"
+            config_dir.mkdir()
+            config = config_dir / "test.json"
+            config.write_text(json.dumps({
+                "id": "test",
+                "label": "Test",
+                "datasetVersion": "test-v1",
+                "boundary": {"type": "file", "path": "../boundary.geojson"},
+            }), encoding="utf-8")
+
+            definition = load_region_definition(config)
+
+            self.assertEqual(
+                Path(definition.boundary["path"]),
+                (root / "boundary.geojson").resolve(),
+            )
+
+    def test_top20_catalog_excludes_only_the_existing_paris_coverage(self) -> None:
+        units = load_units()
+        self.assertEqual(len(units), 19)
+        self.assertEqual(units[0]["code"], "00760")
+        self.assertEqual(units[-1]["code"], "59701")
+        self.assertEqual(
+            [unit["slug"] for unit in select_units(["34701", "rennes"])],
+            ["montpellier", "rennes"],
+        )
+
+    def test_urban_unit_configs_use_stable_insee_ids_and_versions(self) -> None:
+        for unit in load_units():
+            config = validate_region_config(unit)
+            definition = load_region_definition(config)
+            expected_id = f"uu-{unit['code']}"
+            self.assertEqual(definition.id, expected_id)
+            self.assertEqual(
+                definition.dataset_version,
+                f"{expected_id}-2026-max-v1",
+            )
+
+    def test_stage_concurrency_respects_both_user_and_safety_caps(self) -> None:
+        self.assertEqual(stage_worker_count("prepare", 99, 19), 4)
+        self.assertEqual(stage_worker_count("download", 99, 19), 2)
+        self.assertEqual(stage_worker_count("classify", 99, 19), 1)
+        self.assertEqual(stage_worker_count("tiles", 99, 19), 1)
+        self.assertEqual(stage_worker_count("prepare", 2, 19), 2)
+
+    def test_all_pipeline_has_stage_barriers_and_isolates_failures(self) -> None:
+        units = load_units()[:3]
+        arguments = argparse.Namespace(stage="all", jobs=4, download_raster="all")
+        calls: list[tuple[str, list[str]]] = []
+
+        def fake_stage(selected, stage, _arguments):
+            calls.append((stage, [unit["code"] for unit in selected]))
+            if stage == "download":
+                return selected[1:], ["synthetic download failure"]
+            return list(selected), []
+
+        completed, failures = run_pipeline(
+            units,
+            arguments,
+            stage_runner=fake_stage,
+        )
+
+        self.assertEqual(
+            [stage for stage, _codes in calls],
+            ["prepare", "download", "classify", "tiles"],
+        )
+        self.assertEqual(calls[0][1], [unit["code"] for unit in units])
+        self.assertEqual(calls[1][1], [unit["code"] for unit in units])
+        self.assertEqual(calls[2][1], [unit["code"] for unit in units[1:]])
+        self.assertEqual([unit["code"] for unit in completed], [
+            unit["code"] for unit in units[1:]
+        ])
+        self.assertEqual(failures, ["synthetic download failure"])
+
+    def test_region_subprocess_always_runs_from_project_root(self) -> None:
+        unit = load_units()[0]
+        arguments = argparse.Namespace(download_raster="all")
+        with patch("generate_urban_units_visibility.subprocess.run") as run:
+            run_unit(unit, "prepare", arguments)
+
+        self.assertEqual(run.call_args.kwargs["cwd"], PROJECT_ROOT)
+        self.assertTrue(run.call_args.kwargs["check"])
+
     def test_feature_collection_and_centroid_are_supported(self) -> None:
         boundary = {
             "type": "FeatureCollection",
@@ -184,6 +293,133 @@ class RegionalPipelineTests(unittest.TestCase):
         centroid = boundary_centroid(boundary)
         self.assertAlmostEqual(centroid.longitude, 2.5, delta=0.02)
         self.assertAlmostEqual(centroid.latitude, 48.5, delta=0.02)
+
+
+    def test_polygon_hole_cannot_erase_an_independent_enclave(self) -> None:
+        west, south, east, north = 700_000, 6_600_000, 700_100, 6_600_100
+        to_wgs84 = Transformer.from_crs("EPSG:2154", "EPSG:4326", always_xy=True)
+
+        def ring(points):
+            return [list(to_wgs84.transform(x, y)) for x, y in points]
+
+        island = ring([
+            (700_040, 6_600_040), (700_060, 6_600_040),
+            (700_060, 6_600_060), (700_040, 6_600_060),
+            (700_040, 6_600_040),
+        ])
+        outer = ring([
+            (west, south), (east, south), (east, north), (west, north),
+            (west, south),
+        ])
+        hole = ring([
+            (700_020, 6_600_020), (700_080, 6_600_020),
+            (700_080, 6_600_080), (700_020, 6_600_080),
+            (700_020, 6_600_020),
+        ])
+        boundary = {
+            "type": "FeatureCollection",
+            "features": [
+                {"type": "Feature", "properties": {}, "geometry": {
+                    "type": "Polygon", "coordinates": [island],
+                }},
+                {"type": "Feature", "properties": {}, "geometry": {
+                    "type": "Polygon", "coordinates": [outer, hole],
+                }},
+            ],
+        }
+        bounds = Bounds(west, south, east, north)
+        grid = GridDefinition(
+            crs="EPSG:2154",
+            resolution_meters=10,
+            width=10,
+            height=10,
+            input_bounds=bounds,
+            output_bounds=bounds,
+            output_rows=(0, 10),
+            output_columns=(0, 10),
+            true_solar_azimuth_degrees=284,
+            grid_solar_azimuth_degrees=284,
+            grid_ray_east_component=-0.97,
+            grid_ray_north_component=0.24,
+        )
+
+        mask = rasterize_region_mask(boundary, grid)
+
+        self.assertTrue(mask[5, 5])  # independent island inside the other hole
+        self.assertFalse(mask[3, 3])  # hole outside the enclave remains empty
+        self.assertTrue(mask[1, 1])  # outer polygon remains filled
+
+    def test_classification_rejects_a_partial_download(self) -> None:
+        bounds = Bounds(0, 0, 4, 4)
+        grid = GridDefinition(
+            crs="EPSG:2154",
+            resolution_meters=1,
+            width=4,
+            height=4,
+            input_bounds=bounds,
+            output_bounds=bounds,
+            output_rows=(0, 4),
+            output_columns=(0, 4),
+            true_solar_azimuth_degrees=284,
+            grid_solar_azimuth_degrees=284,
+            grid_ray_east_component=-0.97,
+            grid_ray_north_component=0.24,
+        )
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            for name, layer, fallback_layer in (
+                ("mnt", MNT_LAYER, MNT_FALLBACK_LAYER),
+                ("mns", MNS_LAYER, MNS_FALLBACK_LAYER),
+            ):
+                (root / f"{name}.f32").write_bytes(bytes(4 * 4 * 4))
+                signature = download_signature(layer, grid, 2, fallback_layer)
+                (root / f"{name}-download.json").write_text(json.dumps({
+                    "signature": signature,
+                    "completed": ["0:0", "0:2", "2:0"],
+                }), encoding="utf-8")
+
+            with self.assertRaisesRegex(RuntimeError, "missing 1/4 chunks"):
+                ensure_downloads_complete(root, grid, 2, fallback=True)
+
+    def test_download_shards_can_jointly_satisfy_completeness(self) -> None:
+        bounds = Bounds(0, 0, 4, 4)
+        grid = GridDefinition(
+            crs="EPSG:2154",
+            resolution_meters=1,
+            width=4,
+            height=4,
+            input_bounds=bounds,
+            output_bounds=bounds,
+            output_rows=(0, 4),
+            output_columns=(0, 4),
+            true_solar_azimuth_degrees=284,
+            grid_solar_azimuth_degrees=284,
+            grid_ray_east_component=-0.97,
+            grid_ray_north_component=0.24,
+        )
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            for name, layer, fallback_layer in (
+                ("mnt", MNT_LAYER, MNT_FALLBACK_LAYER),
+                ("mns", MNS_LAYER, MNS_FALLBACK_LAYER),
+            ):
+                (root / f"{name}.f32").write_bytes(bytes(4 * 4 * 4))
+                signature = download_signature(layer, grid, 2, fallback_layer)
+                for index, completed in enumerate(
+                    (("0:0", "2:0"), ("0:2", "2:2")), start=1
+                ):
+                    shard_signature = dict(
+                        signature,
+                        shard_index=index - 1,
+                        shard_count=2,
+                    )
+                    path = root / f"{name}-download-shard-{index}-of-2.json"
+                    path.write_text(json.dumps({
+                        "signature": shard_signature,
+                        "completed": completed,
+                    }), encoding="utf-8")
+
+            ensure_downloads_complete(root, grid, 2, fallback=True)
 
     def test_low_sun_and_relief_expand_the_automatic_halo(self) -> None:
         eclipse = EclipseGeometry(
@@ -307,6 +543,173 @@ class RegionalPipelineTests(unittest.TestCase):
         )
 
         self.assertEqual(result[0, 0], CLASS_CLEAR)
+
+
+class VisibilityRegionExportTests(unittest.TestCase):
+    def write_unit_inputs(
+        self,
+        root: Path,
+        *,
+        rank: int,
+        code: str,
+        slug: str,
+        label: str,
+        coverage: dict[str, float],
+    ) -> None:
+        version = f"uu-{code}-2026-max-v1"
+        config = {
+            "id": f"uu-{code}",
+            "label": f"Unité urbaine de {label}",
+            "datasetVersion": version,
+            "resolutionMeters": 5,
+            "minZoom": 8,
+            "maxZoom": 15,
+            "sourceNotes": f"Source synthétique de rang {rank}.",
+        }
+        (root / "regions" / f"uu-{slug}.json").write_text(
+            json.dumps(config), encoding="utf-8"
+        )
+        manifest = {
+            "id": f"uu-{code}-maximum-geometry",
+            "version": version,
+            "coverage": coverage,
+            "reference": {
+                "mode": "fixed-instant",
+                "label": f"{label} · maximum local",
+                "timeUtc": "2026-08-12T18:00:00.000Z",
+            },
+            "surface": {
+                "resolutionMeters": 5.0,
+                "observerHeightMeters": 1.7,
+                "includesBuildings": True,
+                "includesVegetation": True,
+                "sourceTiers": ["IGN LiDAR HD", "RGE ALTI (fallback)"],
+            },
+            "halo": {
+                "capped": False,
+                "sunward_meters": 4000.0,
+            },
+            "tiles": {
+                "scheme": "xyz",
+                "tileSize": 256,
+                "minZoom": 8,
+                "maxZoom": 15,
+            },
+            "generatedAt": "2026-08-10T12:00:00+00:00",
+            "attribution": "© IGN · Licence Ouverte 2.0",
+        }
+        manifest_dir = root / "publish" / version
+        manifest_dir.mkdir(parents=True)
+        (manifest_dir / "manifest.json").write_text(
+            json.dumps(manifest), encoding="utf-8"
+        )
+
+    def test_export_uses_manifest_coverage_in_catalogue_rank_order(self) -> None:
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "regions").mkdir()
+            units = [
+                {
+                    "rank": 1,
+                    "code": "00851",
+                    "slug": "paris",
+                    "label": "Paris",
+                    "existingCoverage": "ile-de-france",
+                },
+                {"rank": 3, "code": "22222", "slug": "beta", "label": "Bêta"},
+                {"rank": 2, "code": "11111", "slug": "alpha", "label": "Alpha"},
+            ]
+            (root / "catalog.json").write_text(
+                json.dumps({"units": units}), encoding="utf-8"
+            )
+            alpha_coverage = {
+                "north": 49.0,
+                "south": 48.0,
+                "east": 3.0,
+                "west": 2.0,
+            }
+            beta_coverage = {
+                "north": 47.0,
+                "south": 46.0,
+                "east": 5.0,
+                "west": 4.0,
+            }
+            self.write_unit_inputs(
+                root,
+                rank=2,
+                code="11111",
+                slug="alpha",
+                label="Alpha",
+                coverage=alpha_coverage,
+            )
+            self.write_unit_inputs(
+                root,
+                rank=3,
+                code="22222",
+                slug="beta",
+                label="Bêta",
+                coverage=beta_coverage,
+            )
+
+            regions = load_visibility_regions(
+                root / "catalog.json", root / "regions", root / "publish"
+            )
+
+            self.assertEqual(
+                [region["code"] for region in regions], ["11111", "22222"]
+            )
+            self.assertEqual(regions[0]["coverage"], alpha_coverage)
+            self.assertEqual(regions[0]["halo"], {
+                "capped": False,
+                "sunwardMeters": 4000.0,
+            })
+            self.assertEqual(regions[1]["version"], "uu-22222-2026-max-v1")
+            rendered = render_typescript(regions)
+            reloaded = load_visibility_regions(
+                root / "catalog.json", root / "regions", root / "publish"
+            )
+            self.assertEqual(rendered, render_typescript(reloaded))
+            self.assertIn("Bêta", rendered)
+            self.assertNotIn("generated at", rendered.lower())
+
+    def test_export_rejects_a_manifest_with_a_stale_version(self) -> None:
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "regions").mkdir()
+            unit = {
+                "rank": 2,
+                "code": "11111",
+                "slug": "alpha",
+                "label": "Alpha",
+            }
+            (root / "catalog.json").write_text(
+                json.dumps({"units": [unit]}), encoding="utf-8"
+            )
+            coverage = {
+                "north": 49.0,
+                "south": 48.0,
+                "east": 3.0,
+                "west": 2.0,
+            }
+            self.write_unit_inputs(
+                root,
+                rank=2,
+                code="11111",
+                slug="alpha",
+                label="Alpha",
+                coverage=coverage,
+            )
+            manifest_path = (
+                root / "publish" / "uu-11111-2026-max-v1" / "manifest.json"
+            )
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            manifest["version"] = "uu-11111-stale-v0"
+            manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+            with self.assertRaisesRegex(ValueError, "must use version"):
+                load_visibility_regions(
+                    root / "catalog.json", root / "regions", root / "publish"
+                )
 
 
 class WaterPlaneTests(unittest.TestCase):

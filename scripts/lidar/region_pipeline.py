@@ -80,11 +80,16 @@ def write_json_atomic(path: Path, value: Any) -> None:
 
 def load_region_definition(path: Path) -> RegionDefinition:
     raw = json.loads(path.read_text(encoding="utf-8"))
+    boundary = dict(raw["boundary"])
+    if boundary.get("type") == "file":
+        source = Path(str(boundary["path"]))
+        if not source.is_absolute():
+            boundary["path"] = str((path.parent / source).resolve())
     return RegionDefinition(
         id=str(raw["id"]),
         label=str(raw["label"]),
         dataset_version=str(raw["datasetVersion"]),
-        boundary=dict(raw["boundary"]),
+        boundary=boundary,
         resolution_meters=float(raw.get("resolutionMeters", 5.0)),
         min_zoom=int(raw.get("minZoom", 8)),
         max_zoom=int(raw.get("maxZoom", 15)),

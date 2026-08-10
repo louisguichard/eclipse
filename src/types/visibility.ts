@@ -71,6 +71,7 @@ export type VisibilityDatasetManifest = {
   legend: readonly VisibilityLegendItem[]
   attribution: string
   disclaimer: string
+  warnings?: readonly string[]
 }
 
 export type VisibilityEstimate = {

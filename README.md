@@ -59,7 +59,7 @@ VITE_CLOUDFLARE_WEB_ANALYTICS_TOKEN=votre_token_de_site_optionnel
 
 `VITE_GOOGLE_MAP_ID` est facultatif. Sans Map ID, l’application utilise le rendu cartographique standard. Avec un Map ID de type JavaScript, vous pouvez administrer un style dans Google Cloud sans changer le code.
 
-`VITE_VISIBILITY_TILE_BASE_URL` est également facultatif. Laissez-le vide pour utiliser les tuiles incluses sous `/visibility/paris-2026-max-v1/`. Pour un CDN, indiquez le dossier parent de `paris-2026-max-v1`, sans ajouter le nom de version à la variable. Cette URL n’est pas un secret.
+`VITE_VISIBILITY_TILE_BASE_URL` est facultatif pour la seule couverture parisienne incluse sous `/visibility/paris-2026-max-v1/`. Il doit être défini pour charger les jeux régionaux publiés sur R2. Indiquez le dossier parent de tous les dossiers versionnés, sans ajouter un nom de version à la variable. Cette URL n’est pas un secret.
 
 `VITE_CLOUDFLARE_WEB_ANALYTICS_TOKEN` est facultatif et public. Lorsqu'il est renseigné, le beacon officiel Cloudflare Web Analytics est chargé uniquement dans le build de production. Il n'est jamais chargé avec `npm run dev`, ni lorsqu'aucun token n'est configuré.
 
@@ -162,7 +162,31 @@ npm run lidar:idf -- --stage prepare
 npm run lidar:idf -- --stage download
 npm run lidar:idf -- --stage classify
 npm run lidar:idf -- --stage tiles
+
+# Préparer les contours des 19 plus grandes unités urbaines hors Paris
+npm run lidar:urban-boundaries
+
+# Calculer ce lot à 5 m, avec une barrière entre chaque étape
+npm run lidar:urban-units -- --stage prepare
+npm run lidar:urban-units -- --stage download
+npm run lidar:urban-units -- --stage classify
+npm run lidar:urban-units -- --stage tiles
 ```
+
+Le lot national reprend la composition officielle des unités urbaines 2020 de
+l’INSEE au 1er janvier 2026 et assemble les contours communaux Etalab 2026 à
+5 m. Paris est volontairement exclue de ces 19 calculs, car l’Île-de-France
+dispose déjà de ses jeux à 2 m et 5 m. Les grilles préparées totalisent
+`1.984 Gpx`, soit `14.79 GiB` de MNT + MNS ; les classes produites occupent
+`1.10 GiB` car elles sont limitées aux emprises de sortie. Ces
+commandes produisent des sorties locales reprenables ; la publication R2 reste
+une étape séparée. La génération locale du 10 août 2026 a produit 25 402 PNG
+non vides (32,14 Mo de contenu) et en a omis 35 500 entièrement transparents.
+Les 19 jeux ont été publiés et vérifiés sous
+`https://tiles.louisguichard.fr/visibility/uu-<code>-2026-max-v1/`.
+Les six halos plafonnés à 15 km — Marseille–Aix, Nice, Toulon, Avignon,
+Grenoble et Saint-Étienne — restent signalés dans leurs manifestes et devront
+passer en `v2` si une validation du relief impose un halo supérieur.
 
 Pour reproduire exactement une installation CI, utilisez `npm ci` plutôt que `npm install` lorsque `package-lock.json` est présent.
 

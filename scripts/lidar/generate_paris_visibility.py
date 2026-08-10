@@ -469,6 +469,92 @@ def merge_elevation_sources(
     }
 
 
+def expected_chunk_keys(grid: GridDefinition, chunk_size: int) -> set[str]:
+    return {
+        f"{row}:{column}"
+        for row in range(0, grid.height, chunk_size)
+        for column in range(0, grid.width, chunk_size)
+    }
+
+
+def download_signature(
+    layer: str,
+    grid: GridDefinition,
+    chunk_size: int,
+    fallback_layer: str | None,
+) -> dict[str, Any]:
+    signature: dict[str, Any] = {
+        "layer": layer,
+        "grid": grid_as_json(grid),
+        "chunk_size": chunk_size,
+    }
+    if fallback_layer is not None:
+        signature["fallback_layer"] = fallback_layer
+    return signature
+
+
+def ensure_downloads_complete(
+    data_dir: Path,
+    grid: GridDefinition,
+    chunk_size: int,
+    *,
+    fallback: bool,
+) -> None:
+    """Refuse classification until every MNT and MNS chunk is durable.
+
+    Completion may be spread over several shard state files.  Their union must
+    cover the exact current grid, and the shared float32 raster must have its
+    complete byte size.  This prevents untouched sparse/memmap cells from being
+    silently interpreted as valid elevations after a partial download.
+    """
+
+    expected_chunks = expected_chunk_keys(grid, chunk_size)
+    expected_bytes = grid.width * grid.height * np.dtype("<f4").itemsize
+    rasters = (
+        ("mnt", MNT_LAYER, MNT_FALLBACK_LAYER if fallback else None),
+        ("mns", MNS_LAYER, MNS_FALLBACK_LAYER if fallback else None),
+    )
+    for name, layer, fallback_layer in rasters:
+        raster_path = data_dir / f"{name}.f32"
+        if not raster_path.is_file():
+            raise RuntimeError(
+                f"Incomplete {name.upper()} download: missing {raster_path}"
+            )
+        actual_bytes = raster_path.stat().st_size
+        if actual_bytes != expected_bytes:
+            raise RuntimeError(
+                f"Incomplete {name.upper()} raster: {actual_bytes} bytes, "
+                f"expected {expected_bytes}"
+            )
+
+        expected_signature = download_signature(
+            layer, grid, chunk_size, fallback_layer
+        )
+        state_paths = sorted(data_dir.glob(f"{name}-download*.json"))
+        if not state_paths:
+            raise RuntimeError(
+                f"Incomplete {name.upper()} download: no state file found"
+            )
+        completed: set[str] = set()
+        for state_path in state_paths:
+            state = json.loads(state_path.read_text(encoding="utf-8"))
+            signature = dict(state.get("signature", {}))
+            signature.pop("shard_index", None)
+            signature.pop("shard_count", None)
+            if signature != expected_signature:
+                raise RuntimeError(
+                    f"Download state does not match the current grid: {state_path}"
+                )
+            completed.update(str(key) for key in state.get("completed", []))
+        missing = expected_chunks - completed
+        if missing:
+            preview = ", ".join(sorted(missing)[:3])
+            raise RuntimeError(
+                f"Incomplete {name.upper()} download: missing {len(missing)}/"
+                f"{len(expected_chunks)} chunks (for example {preview})"
+            )
+
+
 def download_wms_raster(
     layer: str,
     destination: Path,
@@ -482,13 +568,7 @@ def download_wms_raster(
 ) -> None:
     if shard_count < 1 or shard_index < 0 or shard_index >= shard_count:
         raise ValueError("Download shard index must be within the shard count")
-    base_signature = {
-        "layer": layer,
-        "grid": grid_as_json(grid),
-        "chunk_size": chunk_size,
-    }
-    if fallback_layer is not None:
-        base_signature["fallback_layer"] = fallback_layer
+    base_signature = download_signature(layer, grid, chunk_size, fallback_layer)
     signature = dict(base_signature)
     actual_state_path = state_path
     if shard_count > 1:
@@ -635,8 +715,7 @@ def rasterize_region_mask(
     column_start, column_stop = grid.output_columns
     output_width = column_stop - column_start
     output_height = row_stop - row_start
-    image = Image.new("L", (output_width, output_height), 0)
-    draw = ImageDraw.Draw(image)
+    result = np.zeros((output_height, output_width), dtype=bool)
 
     def pixel(point: tuple[float, float]) -> tuple[float, float]:
         x, y = point
@@ -646,10 +725,16 @@ def rasterize_region_mask(
         )
 
     for polygon in projected:
+        # Compose each polygon independently. Drawing every geometry on one
+        # canvas makes a later polygon's hole erase an earlier enclave that is
+        # itself a valid part of a MultiPolygon/FeatureCollection.
+        image = Image.new("L", (output_width, output_height), 0)
+        draw = ImageDraw.Draw(image)
         draw.polygon([pixel(point) for point in polygon[0]], fill=255)
         for hole in polygon[1:]:
             draw.polygon([pixel(point) for point in hole], fill=0)
-    return np.asarray(image, dtype=np.uint8) > 0
+        result |= np.asarray(image, dtype=np.uint8) > 0
+    return result
 
 
 # Backward-compatible import name used by earlier local tooling.
@@ -1104,6 +1189,12 @@ def main() -> None:
     region_id = "paris" if region is None else region.id
     class_path = data_dir / f"{region_id}-visibility-classes.npy"
     if arguments.stage in ("all", "classify"):
+        ensure_downloads_complete(
+            data_dir,
+            grid,
+            chunk_size,
+            fallback=fallback,
+        )
         class_path = classify_region(
             data_dir, boundary, grid, region_id=region_id, eclipse=eclipse,
             observer_height_meters=(OBSERVER_HEIGHT_METERS if region is None else region.observer_height_meters),

@@ -3,6 +3,7 @@ import type {
   VisibilityDatasetManifest,
   VisibilityLegendItem,
 } from '../types/visibility'
+import { URBAN_UNIT_VISIBILITY_REGIONS } from './visibility-regions.generated'
 
 function normalizeBaseUrl(value: string | undefined): string | null {
   const normalized = value?.trim().replace(/\/+$/, '')
@@ -49,6 +50,25 @@ export const VISIBILITY_LEGEND = [
     minClearanceDegrees: 0.5,
   },
 ] as const satisfies readonly VisibilityLegendItem[]
+
+const REGIONAL_VISIBILITY_SOURCES = [
+  {
+    label: 'IGN — LiDAR HD MNT/MNS, selon disponibilité',
+    url: 'https://www.ign.fr/institut/programme-lidar-hd-vers-une-nouvelle-cartographie-3d-du-territoire',
+    license: 'Licence Ouverte Etalab 2.0',
+  },
+  {
+    label: 'IGN — MNS Correl et RGE ALTI, couverture de complément',
+    url: 'https://geoservices.ign.fr/',
+    license: 'Licence Ouverte Etalab 2.0',
+  },
+] as const
+
+const REGIONAL_VISIBILITY_DISCLAIMER =
+  'Estimation géométrique régionale à 5 m au maximum local. La précision varie selon la source IGN disponible et les petits obstacles peuvent ne pas être représentés ; vérifiez sur place.'
+
+const CAPPED_HALO_WARNING =
+  'Prudence : le relief situé au-delà des 15 km calculés peut encore masquer le Soleil dans cette zone.'
 
 /** Front-end contract for the high-resolution Paris visibility pyramid. */
 export const PARIS_VISIBILITY_MANIFEST: VisibilityDatasetManifest = {
@@ -126,18 +146,7 @@ function createIdFDepartmentManifest(
       observerHeightMeters: 1.7,
       includesBuildings: true,
       includesVegetation: true,
-      sources: [
-        {
-          label: 'IGN — LiDAR HD MNT/MNS, selon disponibilité',
-          url: 'https://www.ign.fr/institut/programme-lidar-hd-vers-une-nouvelle-cartographie-3d-du-territoire',
-          license: 'Licence Ouverte Etalab 2.0',
-        },
-        {
-          label: 'IGN — MNS Correl et RGE ALTI, couverture de complément',
-          url: 'https://geoservices.ign.fr/',
-          license: 'Licence Ouverte Etalab 2.0',
-        },
-      ],
+      sources: REGIONAL_VISIBILITY_SOURCES,
     },
     tiles: {
       scheme: 'xyz',
@@ -148,8 +157,7 @@ function createIdFDepartmentManifest(
     },
     legend: VISIBILITY_LEGEND,
     attribution: '© IGN — LiDAR HD, MNS Correl et RGE ALTI · Licence Ouverte 2.0',
-    disclaimer:
-      'Estimation géométrique régionale à 5 m au maximum local. La précision varie selon la source IGN disponible et les petits obstacles peuvent ne pas être représentés ; vérifiez sur place.',
+    disclaimer: REGIONAL_VISIBILITY_DISCLAIMER,
   }
 }
 
@@ -157,14 +165,56 @@ export const ILE_DE_FRANCE_VISIBILITY_MANIFESTS = IDF_DEPARTMENTS.map(
   createIdFDepartmentManifest,
 ) as readonly VisibilityDatasetManifest[]
 
+function createUrbanUnitManifest(
+  region: (typeof URBAN_UNIT_VISIBILITY_REGIONS)[number],
+): VisibilityDatasetManifest {
+  return {
+    id: region.id,
+    version: region.version,
+    label: `${region.label} · 5 m`,
+    availability: 'ready',
+    coverage: region.coverage,
+    reference: region.reference,
+    surface: {
+      description:
+        `Modèle IGN hybride à 5 m · LiDAR HD en priorité, puis MNS Correl et RGE ALTI. ${region.sourceNotes}`,
+      resolutionMeters: region.surface.resolutionMeters,
+      observerHeightMeters: region.surface.observerHeightMeters,
+      includesBuildings: region.surface.includesBuildings,
+      includesVegetation: region.surface.includesVegetation,
+      generatedAt: region.surface.generatedAt,
+      sources: REGIONAL_VISIBILITY_SOURCES,
+    },
+    tiles: {
+      scheme: region.tiles.scheme,
+      tileSize: region.tiles.tileSize,
+      minZoom: region.tiles.minZoom,
+      maxZoom: region.tiles.maxZoom,
+      urlTemplate: `${VISIBILITY_TILE_BASE_URL}/{version}/{z}/{x}/{y}.png`,
+    },
+    legend: VISIBILITY_LEGEND,
+    attribution: region.attribution,
+    disclaimer: region.halo.capped
+      ? `${REGIONAL_VISIBILITY_DISCLAIMER} ${CAPPED_HALO_WARNING}`
+      : REGIONAL_VISIBILITY_DISCLAIMER,
+    warnings: region.halo.capped ? [CAPPED_HALO_WARNING] : [],
+  }
+}
+
+export const URBAN_UNIT_VISIBILITY_MANIFESTS =
+  URBAN_UNIT_VISIBILITY_REGIONS.map(
+    createUrbanUnitManifest,
+  ) as readonly VisibilityDatasetManifest[]
+
 /**
  * Priority order is part of the rendering contract: fine datasets come first.
  * MapView inserts each entry at index zero, leaving Paris at the highest index
- * so it is painted above any intersecting 5 m departmental pyramid.
+ * so it is painted above any intersecting 5 m regional pyramid.
  */
 export const VISIBILITY_DATASETS = [
   PARIS_VISIBILITY_MANIFEST,
   ...ILE_DE_FRANCE_VISIBILITY_MANIFESTS,
+  ...URBAN_UNIT_VISIBILITY_MANIFESTS,
 ] as const satisfies readonly VisibilityDatasetManifest[]
 
 /** The visibility layer is the purpose of the map, so it remains prominent. */

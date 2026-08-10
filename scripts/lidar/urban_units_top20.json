@@ -1,0 +1,37 @@
+{
+  "source": {
+    "label": "INSEE — unités urbaines 2020 au 1er janvier 2026",
+    "url": "https://www.insee.fr/fr/statistiques/fichier/4802589/fonds_uu2020_2026.zip",
+    "sha256": "cf5165e3c2984b47c12cb9a10b655b38bb66afa67ff4047f9719c4a0bea87962",
+    "crs": "EPSG:4326"
+  },
+  "boundarySource": {
+    "label": "Contours administratifs Etalab 2026 — communes, précision 5 m",
+    "url": "https://etalab-datasets.geo.data.gouv.fr/contours-administratifs/2026/geojson/communes-5m.geojson.gz",
+    "sha256": "0a315fa7707bd66c779e703a2de2d5ab88e53303df02e1aabde5071f7230a362",
+    "accuracyMeters": 5,
+    "crs": "EPSG:4326"
+  },
+  "units": [
+    { "rank": 1, "code": "00851", "slug": "paris", "label": "Paris", "existingCoverage": "ile-de-france" },
+    { "rank": 2, "code": "00760", "slug": "lyon", "label": "Lyon" },
+    { "rank": 3, "code": "00759", "slug": "marseille-aix-en-provence", "label": "Marseille–Aix-en-Provence" },
+    { "rank": 4, "code": "00758", "slug": "toulouse", "label": "Toulouse" },
+    { "rank": 5, "code": "59702", "slug": "lille", "label": "Lille (partie française)" },
+    { "rank": 6, "code": "33701", "slug": "bordeaux", "label": "Bordeaux" },
+    { "rank": 7, "code": "06701", "slug": "nice", "label": "Nice" },
+    { "rank": 8, "code": "44701", "slug": "nantes", "label": "Nantes" },
+    { "rank": 9, "code": "00757", "slug": "toulon", "label": "Toulon" },
+    { "rank": 10, "code": "00756", "slug": "douai-lens", "label": "Douai–Lens" },
+    { "rank": 11, "code": "67701", "slug": "strasbourg", "label": "Strasbourg (partie française)" },
+    { "rank": 12, "code": "34701", "slug": "montpellier", "label": "Montpellier" },
+    { "rank": 13, "code": "00755", "slug": "rouen", "label": "Rouen" },
+    { "rank": 14, "code": "00754", "slug": "avignon", "label": "Avignon" },
+    { "rank": 15, "code": "38701", "slug": "grenoble", "label": "Grenoble" },
+    { "rank": 16, "code": "35701", "slug": "rennes", "label": "Rennes" },
+    { "rank": 17, "code": "00753", "slug": "saint-etienne", "label": "Saint-Étienne" },
+    { "rank": 18, "code": "37701", "slug": "tours", "label": "Tours" },
+    { "rank": 19, "code": "00752", "slug": "bethune", "label": "Béthune" },
+    { "rank": 20, "code": "59701", "slug": "valenciennes", "label": "Valenciennes (partie française)" }
+  ]
+}
