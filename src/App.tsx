@@ -172,7 +172,7 @@ function App() {
       {mobileLayer && (
         <button
           type="button"
-          className="mobile-layer-scrim"
+          className={`mobile-layer-scrim mobile-layer-scrim--${mobileLayer}`}
           aria-label="Fermer"
           onClick={() => setMobileLayer(null)}
         />
@@ -200,7 +200,7 @@ function App() {
           </button>
         </div>
 
-        <div className="desktop-search-cluster">
+        <div className="desktop-search-cluster" inert={mobileLayer === 'menu'}>
           <LocationSearch
             observer={location}
             onSelect={selectLocation}
@@ -221,6 +221,7 @@ function App() {
         <button
           className="mobile-search-trigger"
           type="button"
+          inert={mobileLayer === 'menu'}
           aria-label={mobileLayer === 'search' ? 'Fermer la recherche' : 'Rechercher un lieu'}
           aria-expanded={mobileLayer === 'search'}
           onClick={() => setMobileLayer((layer) => layer === 'search' ? null : 'search')}

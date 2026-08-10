@@ -198,6 +198,15 @@ describe('mobile view routing', () => {
     ])
     expect(screen.getByRole('menuitem', { name: 'Auteur — louisguichard.fr', hidden: true })).toBeInTheDocument()
     expect(screen.queryByRole('menuitem', { name: 'Ma position', hidden: true })).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: /Éclipse.*12 août 2026/ }))
+    expect(screen.getByRole('button', { name: 'Fermer' })).toHaveClass('mobile-layer-scrim--menu')
+    expect(document.querySelector('.desktop-search-cluster')).toHaveAttribute('inert')
+    expect(document.querySelector('.mobile-search-trigger')).toHaveAttribute('inert')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Fermer' }))
+    expect(document.querySelector('.desktop-search-cluster')).not.toHaveAttribute('inert')
+    expect(document.querySelector('.mobile-search-trigger')).not.toHaveAttribute('inert')
   })
 
   it('keeps a dedicated geolocation control beside desktop search', () => {

@@ -212,6 +212,17 @@ input:focus-visible {
   padding: 18px var(--gutter);
 }
 
+/* When the title menu is open, only its trigger and contents stay interactive.
+   Pointer events elsewhere fall through to the click-away layer. */
+.app-header.is-menu-open {
+  pointer-events: none;
+}
+
+.app-header.is-menu-open .brand__mobile-trigger,
+.app-header.is-menu-open .mobile-title-menu {
+  pointer-events: auto;
+}
+
 .brand {
   display: flex;
   align-items: center;
@@ -2338,6 +2349,14 @@ input:focus-visible {
     cursor: default;
   }
 
+  /* The title menu keeps an invisible click-away target without muting or
+     blurring the Street View scene behind it. */
+  .mobile-layer-scrim--menu {
+    background: transparent;
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+
   .app-header {
     --mobile-header-inline: 20px;
     z-index: 20;
@@ -2605,7 +2624,13 @@ input:focus-visible {
   }
 
   .workspace {
-    inset: 0 0 calc(86px + env(safe-area-inset-bottom));
+    inset: 0;
+  }
+
+  /* Street View is full-bleed beneath the floating tabs. The map retains its
+     former reserved footer space so native Google attribution stays clear. */
+  .map-panel {
+    bottom: calc(86px + env(safe-area-inset-bottom));
   }
 
   .street-scene__panorama {
@@ -2645,9 +2670,12 @@ input:focus-visible {
     z-index: 8;
     inset: 0;
     display: block;
-    background:
-      linear-gradient(180deg, rgb(4 6 12 / 0.72), rgb(4 6 12 / 0.1) 22%, transparent 40%),
-      linear-gradient(0deg, rgb(4 6 12 / 0.72), rgb(4 6 12 / 0.32) 38%, transparent min(70%, 420px));
+    background: linear-gradient(
+      0deg,
+      rgb(4 6 12 / 0.72),
+      rgb(4 6 12 / 0.32) 38%,
+      transparent min(70%, 420px)
+    );
     -webkit-mask-image: linear-gradient(
       to bottom,
       #000 0,
@@ -2989,7 +3017,7 @@ input:focus-visible {
   .mobile-tabs {
     z-index: 14;
     right: auto;
-    bottom: calc(18px + env(safe-area-inset-bottom));
+    bottom: calc(24px + env(safe-area-inset-bottom));
     left: 50%;
     display: grid;
     width: min(calc(100% - 44px), 420px);
@@ -2998,14 +3026,16 @@ input:focus-visible {
     gap: 0;
     padding: 4px;
     overflow: hidden;
-    border: 0;
+    border: 1px solid rgb(246 249 255 / 0.24);
     border-radius: 26px;
-    background: linear-gradient(145deg, rgb(21 28 40 / 0.58), rgb(4 7 13 / 0.5));
+    background: linear-gradient(145deg, rgb(28 39 56 / 0.76), rgb(5 9 17 / 0.68));
     box-shadow:
-      inset 0 1px 0 rgb(255 255 255 / 0.08),
-      0 14px 34px -24px rgb(0 0 0 / 0.9);
-    backdrop-filter: blur(18px) saturate(1.28);
-    -webkit-backdrop-filter: blur(18px) saturate(1.28);
+      inset 0 1px 0 rgb(255 255 255 / 0.18),
+      inset 0 -1px 0 rgb(0 0 0 / 0.22),
+      0 18px 42px -20px rgb(0 0 0 / 0.95),
+      0 0 0 1px rgb(0 0 0 / 0.12);
+    backdrop-filter: blur(24px) saturate(1.5);
+    -webkit-backdrop-filter: blur(24px) saturate(1.5);
     transform: translateX(-50%);
   }
 
@@ -3019,11 +3049,12 @@ input:focus-visible {
     border: 0;
     border-radius: 22px;
     background:
-      radial-gradient(circle at 50% 115%, rgb(245 185 66 / 0.13), transparent 58%),
-      linear-gradient(145deg, rgb(255 255 255 / 0.16), rgb(255 255 255 / 0.075));
+      radial-gradient(circle at 50% 115%, rgb(245 185 66 / 0.22), transparent 62%),
+      linear-gradient(145deg, rgb(255 255 255 / 0.25), rgb(255 255 255 / 0.11));
     box-shadow:
-      inset 0 1px 0 rgb(255 255 255 / 0.13),
-      0 8px 18px -14px rgb(0 0 0 / 0.86);
+      inset 0 1px 0 rgb(255 255 255 / 0.24),
+      inset 0 -1px 0 rgb(0 0 0 / 0.18),
+      0 10px 22px -14px rgb(0 0 0 / 0.92);
     filter: none;
     transition: transform 240ms cubic-bezier(0.22, 0.8, 0.28, 1);
     will-change: transform;
@@ -3037,7 +3068,7 @@ input:focus-visible {
     padding: 0 18px;
     border: 0;
     border-radius: 22px;
-    color: rgb(255 255 255 / 0.48);
+    color: rgb(255 255 255 / 0.72);
     background: transparent;
     font-size: 13px;
     font-weight: 600;
@@ -3046,8 +3077,9 @@ input:focus-visible {
   }
 
   .mobile-tabs button.is-active {
-    color: rgb(255 255 255 / 0.96);
+    color: #fff;
     background: transparent;
+    text-shadow: 0 1px 10px rgb(0 0 0 / 0.85);
   }
 
   .mobile-tabs button:focus-visible {
@@ -3116,7 +3148,7 @@ input:focus-visible {
   }
 
   .mobile-tabs {
-    bottom: calc(10px + env(safe-area-inset-bottom));
+    bottom: calc(24px + env(safe-area-inset-bottom));
   }
 }
 
@@ -3140,7 +3172,11 @@ input:focus-visible {
   }
 
   .workspace {
-    inset: 0 0 calc(62px + env(safe-area-inset-bottom));
+    inset: 0;
+  }
+
+  .map-panel {
+    bottom: calc(72px + env(safe-area-inset-bottom));
   }
 
   .mobile-timeline-layer {
@@ -3190,7 +3226,7 @@ input:focus-visible {
   }
 
   .mobile-tabs {
-    bottom: calc(8px + env(safe-area-inset-bottom));
+    bottom: calc(18px + env(safe-area-inset-bottom));
     height: 54px;
     padding-top: 6px;
   }
@@ -3331,7 +3367,6 @@ input:focus-visible {
   }
 
   .app-header.is-menu-open .location-search-wrap {
-    opacity: 0.55;
     pointer-events: none;
   }
 
@@ -3347,6 +3382,12 @@ input:focus-visible {
     background: rgb(4 6 12 / 0.48);
     backdrop-filter: blur(2px);
     -webkit-backdrop-filter: blur(2px);
+  }
+
+  .mobile-layer-scrim--menu {
+    background: transparent;
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
   }
 
   .mobile-title-menu {
