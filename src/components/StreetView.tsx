@@ -255,6 +255,7 @@ export function StreetView({
     moveTo,
     panoramaState,
     recenter,
+    sunViewportPoint,
     viewportSize,
   } = useStreetView(observer, snapshot, active, onUserPositionChange)
   const demo = panoramaState.status === 'demo'
@@ -264,10 +265,19 @@ export function StreetView({
   const showConfidenceWarning =
     panoramaState.distanceMeters != null &&
     panoramaState.distanceMeters > STREET_VIEW.confidenceDistanceMeters
-  const projectedSun = useMemo(
+  const geometricProjectedSun = useMemo(
     () => projectSunIntoStreetView(snapshot, camera, viewportSize),
     [camera, snapshot, viewportSize],
   )
+  const projectedSun = useMemo<ProjectedSun>(() => {
+    // The viewer's projector uses the exact Three.js camera that renders the
+    // panorama (including its real FOV, aspect ratio, tilt and roll). Keep the
+    // geometric projection only for the robust off-screen direction cue.
+    if (ready && sunViewportPoint?.visible) {
+      return { edgeCue: null, point: sunViewportPoint }
+    }
+    return geometricProjectedSun
+  }, [geometricProjectedSun, ready, sunViewportPoint])
   const twilight = useMemo(() => gradeTwilight(snapshot), [snapshot])
   const eclipseVeilOpacity = snapshot.circumstances.visible
     ? Math.min(
@@ -332,6 +342,7 @@ export function StreetView({
             diameterPixels={sunDiameterPixels}
             position={sunPosition}
             visible={demo || projectedSun.point.visible}
+            synchronizedPosition={ready && sunViewportPoint !== null}
             demo={demo}
             cloudCover={cloudCover}
           />

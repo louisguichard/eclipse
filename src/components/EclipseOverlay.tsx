@@ -13,6 +13,8 @@ export type EclipseOverlayProps = {
     y: number
   }
   visible: boolean
+  /** Position is also updated imperatively from the panorama render loop. */
+  synchronizedPosition?: boolean
   demo?: boolean
   cloudCover?: number | null
 }
@@ -28,6 +30,7 @@ export function EclipseOverlay({
   diameterPixels,
   position,
   visible,
+  synchronizedPosition = false,
   demo = false,
   cloudCover = null,
 }: EclipseOverlayProps) {
@@ -52,6 +55,8 @@ export function EclipseOverlay({
   )
   const glow = 0.25 + (1 - eclipseRatio) * 0.75
   const calloutSide = position.x > 0.6 ? 'left' : 'right'
+  const fallbackLeft = `${position.x * 100}%`
+  const fallbackTop = `${position.y * 100}%`
 
   return (
     <div
@@ -60,8 +65,8 @@ export function EclipseOverlay({
       className="sun-marker"
       data-visible={visible}
       style={{
-        left: `${position.x * 100}%`,
-        top: `${position.y * 100}%`,
+        left: synchronizedPosition ? `var(--street-sun-x, ${fallbackLeft})` : fallbackLeft,
+        top: synchronizedPosition ? `var(--street-sun-y, ${fallbackTop})` : fallbackTop,
         opacity: visible ? (belowHorizon ? 0.58 : 1) : 0,
         transform: `translate(-50%, -50%) scale(${visible ? 1 : 0.86})`,
         '--mobile-moon-x': `${snapshot.moonOffset.horizontal * mobileTravel}%`,

@@ -20,6 +20,7 @@ type FakeViewerShape = {
   rotate: ReturnType<typeof vi.fn>
   state: { hFov: number }
   emitCamera: (position: ViewerPosition, horizontalFov: number) => void
+  emitProjection: (point: { x: number; y: number }, visible: boolean) => void
 }
 
 const streetlevelMocks = vi.hoisted(() => ({
@@ -42,9 +43,13 @@ vi.mock('@photo-sphere-viewer/core', () => {
     private position: ViewerPosition = { yaw: 0, pitch: 0 }
     panoramaOptions: Record<string, unknown> | null = null
     state = { hFov: 90 }
+    private projectedPoint = { x: 500, y: 250 }
+    private projectedPointVisible = true
     dataHelper = {
       hFovToVFov: (value: number) => value,
       fovToZoomLevel: (value: number) => 100 - value,
+      sphericalCoordsToViewerCoords: () => this.projectedPoint,
+      isPointVisible: () => this.projectedPointVisible,
     }
     destroy = vi.fn()
     autoSize = vi.fn()
@@ -54,6 +59,7 @@ vi.mock('@photo-sphere-viewer/core', () => {
       this.listeners.set(name, listeners)
     })
     getPosition = vi.fn(() => this.position)
+    getSize = vi.fn(() => ({ width: 1000, height: 500 }))
     rotate = vi.fn((position: ViewerPosition) => {
       this.position = position
       this.dispatch('position-updated')
@@ -81,6 +87,12 @@ vi.mock('@photo-sphere-viewer/core', () => {
       this.state.hFov = horizontalFov
       this.dispatch('position-updated')
       this.dispatch('zoom-updated')
+    }
+
+    emitProjection(point: { x: number; y: number }, visible: boolean) {
+      this.projectedPoint = point
+      this.projectedPointVisible = visible
+      this.dispatch('position-updated')
     }
 
     private dispatch(name: string) {
@@ -275,5 +287,21 @@ describe('useStreetView with the browser Streetlevel provider', () => {
     expect(latestStreetView?.camera.heading).toBeCloseTo(280, 10)
     expect(latestStreetView?.camera.pitch).toBeCloseTo(0.2 * 180 / Math.PI, 10)
     expect(latestStreetView?.camera.zoom).toBeCloseTo(2, 6)
+  })
+
+  it('uses the viewer camera for an exact, immediately updated Sun projection', async () => {
+    const view = render(createElement(StreetViewHarness, { snapshot: snapshotAt(284, 8) }))
+    await finishLookup()
+    const viewer = viewerMocks.instances[0]
+
+    act(() => viewer.emitProjection({ x: 725, y: 125 }, true))
+
+    expect(latestStreetView?.sunViewportPoint).toEqual({
+      visible: true,
+      x: 0.725,
+      y: 0.25,
+    })
+    expect(view.container.style.getPropertyValue('--street-sun-x')).toBe('72.5%')
+    expect(view.container.style.getPropertyValue('--street-sun-y')).toBe('25%')
   })
 })

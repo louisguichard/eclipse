@@ -36,6 +36,12 @@ export type StreetViewStep = {
   description: string
 }
 
+export type StreetViewSunPoint = {
+  visible: boolean
+  x: number
+  y: number
+}
+
 export type UseStreetViewResult = {
   attribution: string | null
   camera: StreetViewCamera
@@ -46,6 +52,8 @@ export type UseStreetViewResult = {
   moveTo: (pano: string) => void
   panoramaState: PanoramaState
   recenter: () => void
+  /** Exact Sun projection produced by Photo Sphere Viewer's own camera. */
+  sunViewportPoint: StreetViewSunPoint | null
   viewportSize: {
     height: number
     width: number
@@ -159,6 +167,7 @@ export function useStreetView(
     distanceMeters: null,
     radiusMeters: null,
   })
+  const [sunViewportPoint, setSunViewportPoint] = useState<StreetViewSunPoint | null>(null)
   const [viewportSize, setViewportSize] = useState({ height: 0, width: 0 })
 
   activeRef.current = active
@@ -176,6 +185,33 @@ export function useStreetView(
       heading: viewerYawToHeading(position.yaw, panorama.heading),
       pitch: clampPitch(position.pitch * RAD_TO_DEG),
       zoom: horizontalFovToStreetZoom(viewer.state.hFov),
+    }
+    const size = viewer.getSize()
+    const sunPosition = {
+      yaw: headingToViewerYaw(snapshotRef.current.sun.azimuth, panorama.heading),
+      pitch: snapshotRef.current.sun.altitude * DEG_TO_RAD,
+    }
+    const projectedSun = viewer.dataHelper.sphericalCoordsToViewerCoords(sunPosition)
+    if (size.width > 0 && size.height > 0) {
+      const nextSunPoint = {
+        visible: viewer.dataHelper.isPointVisible(sunPosition),
+        x: projectedSun.x / size.width,
+        y: projectedSun.y / size.height,
+      }
+      // The panorama canvas and the solar marker are painted by different
+      // renderers (WebGL and React). Updating CSS here keeps both positions in
+      // the same browser frame instead of waiting for React's next commit.
+      const stage = containerRef.current?.parentElement
+      stage?.style.setProperty('--street-sun-x', `${nextSunPoint.x * 100}%`)
+      stage?.style.setProperty('--street-sun-y', `${nextSunPoint.y * 100}%`)
+      setSunViewportPoint((previous) =>
+        previous &&
+        previous.visible === nextSunPoint.visible &&
+        Math.abs(previous.x - nextSunPoint.x) < 0.000_001 &&
+        Math.abs(previous.y - nextSunPoint.y) < 0.000_001
+          ? previous
+          : nextSunPoint,
+      )
     }
     setCamera(nextCamera)
     setCentered(
@@ -210,11 +246,15 @@ export function useStreetView(
       touchmoveTwoFingers: false,
       canvasBackground: '#07101b',
     })
-    viewer.addEventListener('position-updated', scheduleCameraRead)
-    viewer.addEventListener('zoom-updated', scheduleCameraRead)
+    // These events are already emitted on Photo Sphere Viewer's animation
+    // frame. Read its camera immediately: another rAF here made the DOM marker
+    // trail the WebGL panorama by one frame while dragging.
+    viewer.addEventListener('position-updated', readCameraFromViewer)
+    viewer.addEventListener('zoom-updated', readCameraFromViewer)
+    viewer.addEventListener('size-updated', readCameraFromViewer)
     viewerRef.current = viewer
     return viewer
-  }, [scheduleCameraRead])
+  }, [readCameraFromViewer])
 
   const applyCamera = useCallback((resetZoom: boolean) => {
     const viewer = viewerRef.current
@@ -350,6 +390,7 @@ export function useStreetView(
     followSunRef.current = true
     setLinks([])
     setAttribution(null)
+    setSunViewportPoint(null)
     setCentered(true)
     setPanoramaState({
       status: 'loading',
@@ -401,9 +442,10 @@ export function useStreetView(
   }, [displayPanorama, observer.lat, observer.lng, retryNonce])
 
   useEffect(() => {
-    if (!followSunRef.current || !viewerRef.current || !panoramaRef.current) return
-    applyCamera(false)
-  }, [applyCamera, snapshot.sun.altitude, snapshot.sun.azimuth])
+    if (!viewerRef.current || !panoramaRef.current) return
+    if (followSunRef.current) applyCamera(false)
+    else scheduleCameraRead()
+  }, [applyCamera, scheduleCameraRead, snapshot.sun.altitude, snapshot.sun.azimuth])
 
   useEffect(() => {
     if (!active) return
@@ -440,6 +482,7 @@ export function useStreetView(
     moveTo,
     panoramaState,
     recenter,
+    sunViewportPoint,
     viewportSize,
   }
 }
