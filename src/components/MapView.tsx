@@ -14,6 +14,7 @@ import { destinationPoint } from '../lib/geometry'
 import { formatLocalTime } from '../lib/format'
 import { resolveBasemapStyle } from '../lib/mapLibreBasemap'
 import { createVisibilityRasterDefinition } from '../lib/mapLibreVisibility'
+import { ensureVisibilityTileProtocol } from '../lib/mapLibreVisibilityProtocol'
 import {
   knownVisibilityCoverageAtPoint,
   preferredVisibilityDatasetAtPoint,
@@ -310,6 +311,7 @@ export function MapView({
         // After Vite code-splitting that sibling file does not exist, so bundle
         // the worker explicitly and point MapLibre at the generated asset.
         maplibre.setWorkerUrl(mapLibreWorkerUrl)
+        ensureVisibilityTileProtocol(maplibre)
         const style = await resolveBasemapStyle(maplibre)
         const host = hostRef.current
         if (cancelled || !host) return

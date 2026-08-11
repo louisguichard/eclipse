@@ -1,5 +1,6 @@
 import type { AddLayerObject, Map as MapLibreMap } from 'maplibre-gl'
 import { visibilityManifestIssue } from './visibilityTiles'
+import { visibilityProtocolUrl } from './mapLibreVisibilityProtocol'
 import type { VisibilityDatasetManifest } from '../types/visibility'
 
 type MapSourceDefinition = Parameters<MapLibreMap['addSource']>[1]
@@ -33,10 +34,11 @@ export function createVisibilityRasterDefinition(
 
   const sourceId = visibilitySourceId(manifest.id)
   const layerId = visibilityLayerId(manifest.id)
-  const tileUrl = manifest.tiles.urlTemplate.replaceAll(
+  const sourceTileUrl = manifest.tiles.urlTemplate.replaceAll(
     '{version}',
     encodeURIComponent(manifest.version),
   )
+  const tileUrl = visibilityProtocolUrl(sourceTileUrl)
 
   return {
     datasetId: manifest.id,

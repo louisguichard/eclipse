@@ -42,7 +42,9 @@ describe('MapLibre visibility raster definitions', () => {
     expect(definition?.layerId).toBe(visibilityLayerId(MANIFEST.id))
     expect(definition?.source).toMatchObject({
       type: 'raster',
-      tiles: ['https://example.test/version%20%C3%A9t%C3%A9%202026/{z}/{x}/{y}.png'],
+      tiles: [
+        'eclipse-visibility://https%3A%2F%2Fexample.test%2Fversion%2520%25C3%25A9t%25C3%25A9%25202026/{z}/{x}/{y}.png',
+      ],
       scheme: 'xyz',
       tileSize: 256,
       minzoom: 10,
