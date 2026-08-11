@@ -52,7 +52,7 @@ describe('SunDisc', () => {
     // One solar radius of separation moves the Moon by the badge fraction, and
     // by nothing measured in pixels — that is what keeps it size-independent.
     expect(x?.endsWith('%')).toBe(true)
-    expect(Number.parseFloat(x!)).toBeCloseTo((15.5 / 46) * 100, 4)
+    expect(Number.parseFloat(x!)).toBeCloseTo(50, 4)
   })
 
   it('flips the vertical sign, because the sky is measured upward and CSS downward', () => {
@@ -60,7 +60,7 @@ describe('SunDisc', () => {
       <SunDisc snapshot={snapshot({ moonOffset: { horizontal: 0, vertical: 0.2629 } })} />,
     )
     const { y } = offsets(container.querySelector('.readout__disc')!)
-    expect(Number.parseFloat(y!)).toBeCloseTo(-(15.5 / 46) * 100, 4)
+    expect(Number.parseFloat(y!)).toBeCloseTo(-50, 4)
   })
 
   it('scales the lunar disc by the true radius ratio', () => {

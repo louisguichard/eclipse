@@ -1,7 +1,9 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
+  buildTimeZoneUrl,
   buildWeatherForecastUrl,
   clearWeatherCache,
+  fetchTimeZone,
   fetchWeatherDay,
   parseOpenMeteoResponse,
   WeatherForecastError,
@@ -51,6 +53,31 @@ describe('buildWeatherForecastUrl', () => {
     expect(url.searchParams.get('start_date')).toBe('2026-08-11')
     expect(url.searchParams.get('end_date')).toBe('2026-08-13')
     expect(url.searchParams.get('hourly')?.split(',')).toHaveLength(7)
+  })
+})
+
+describe('time zone lookup', () => {
+  it('uses a lightweight current request independent of the eclipse forecast date', () => {
+    const url = new URL(buildTimeZoneUrl({ lat: 48.856_61, lng: 2.352_21 }))
+
+    expect(url.searchParams.get('latitude')).toBe('48.857')
+    expect(url.searchParams.get('longitude')).toBe('2.352')
+    expect(url.searchParams.get('timezone')).toBe('auto')
+    expect(url.searchParams.get('forecast_days')).toBe('1')
+    expect(url.searchParams.has('start_date')).toBe(false)
+    expect(url.searchParams.has('hourly')).toBe(false)
+  })
+
+  it('resolves and caches the IANA zone without requiring weather series', async () => {
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(new Response(JSON.stringify({
+      timezone: 'Europe/Paris',
+      utc_offset_seconds: 7200,
+    })))
+    const location = { lat: 48.8566, lng: 2.3522 }
+
+    await expect(fetchTimeZone(location, { fetcher })).resolves.toBe('Europe/Paris')
+    await expect(fetchTimeZone(location, { fetcher })).resolves.toBe('Europe/Paris')
+    expect(fetcher).toHaveBeenCalledTimes(1)
   })
 })
 

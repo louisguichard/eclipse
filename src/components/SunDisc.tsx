@@ -5,13 +5,8 @@ export type SunDiscProps = {
   className?: string
 }
 
-/**
- * How far the lunar disc travels, as a fraction of the badge, per unit of
- * angular offset in solar radii. Deliberately below the true geometry so the
- * Moon stays inside the badge at first and last contact instead of sliding
- * out of it — the badge reads the phase, it does not measure it.
- */
-const OFFSET_FRACTION_PER_SOLAR_RADIUS = 15.5 / 46
+/** One solar radius is half the badge diameter: preserve the true geometry. */
+const OFFSET_FRACTION_PER_SOLAR_RADIUS = 0.5
 
 /**
  * The phase badge: a solar disc with the Moon riding across it. Sized entirely

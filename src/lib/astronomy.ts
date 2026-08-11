@@ -47,7 +47,7 @@ export function dateFromTimelineMinute(minute: number): Date {
 }
 
 export function timelineMinuteFromDate(date: Date): number {
-  return Math.round((date.getTime() - TIMELINE.startUtc.getTime()) / 60_000)
+  return (date.getTime() - TIMELINE.startUtc.getTime()) / 60_000
 }
 
 export function bodyHorizontalCoordinates(

@@ -157,6 +157,7 @@ export function useStreetView(
   const listenersRef = useRef<google.maps.MapsEventListener[]>([])
   const listenerCleanupTimerRef = useRef<number | null>(null)
   const resizeFrameRef = useRef<number | null>(null)
+  const cameraFrameRef = useRef<number | null>(null)
   const requestTokenRef = useRef(0)
   const mountedRef = useRef(false)
   const observerRef = useRef(observer)
@@ -166,6 +167,7 @@ export function useStreetView(
   const activeRef = useRef(active)
   const lookupRadiusRef = useRef<number | null>(null)
   const panoramaReadyRef = useRef(false)
+  const followSunRef = useRef(true)
   const movementTrackerRef = useRef(new PanoramaMovementTracker())
   const onUserPositionChangeRef = useRef(onUserPositionChange)
   const [retryNonce, setRetryNonce] = useState(0)
@@ -181,7 +183,7 @@ export function useStreetView(
   onUserPositionChangeRef.current = onUserPositionChange
   targetCameraRef.current = sunToStreetViewPov(snapshot.sun, STREET_VIEW.zoom)
 
-  const updateCameraFromPanorama = useCallback(() => {
+  const readCameraFromPanorama = useCallback(() => {
     const panorama = panoramaRef.current
     if (!panorama || !mountedRef.current) return
     const pov = panorama.getPov()
@@ -190,12 +192,22 @@ export function useStreetView(
       pitch: pov.pitch,
       zoom: panorama.getZoom(),
     }
+    const isCentered = cameraAngularDistance(snapshotRef.current.sun, nextCamera) <=
+      STREET_VIEW.centeredToleranceDegrees
     setCamera(nextCamera)
-    setCentered(
-      cameraAngularDistance(snapshotRef.current.sun, nextCamera) <=
-        STREET_VIEW.centeredToleranceDegrees,
-    )
+    setCentered(isCentered)
   }, [])
+
+  // POV events can arrive faster than React and the Street View WebGL canvas
+  // paint. Read the latest camera once per animation frame so the marker tracks
+  // the rendered panorama without building up an event/render backlog.
+  const updateCameraFromPanorama = useCallback(() => {
+    if (cameraFrameRef.current !== null) return
+    cameraFrameRef.current = window.requestAnimationFrame(() => {
+      cameraFrameRef.current = null
+      readCameraFromPanorama()
+    })
+  }, [readCameraFromPanorama])
 
   const updatePositionFromPanorama = useCallback(() => {
     const panorama = panoramaRef.current
@@ -330,6 +342,10 @@ export function useStreetView(
         for (const listener of listenersRef.current) listener.remove()
         listenersRef.current = []
         panoramaRef.current?.setVisible(false)
+        if (cameraFrameRef.current !== null) {
+          window.cancelAnimationFrame(cameraFrameRef.current)
+          cameraFrameRef.current = null
+        }
         listenerCleanupTimerRef.current = null
       }, 0)
     }
@@ -338,6 +354,15 @@ export function useStreetView(
   useEffect(() => {
     const container = containerRef.current
     if (!container) return undefined
+
+    // A deliberate panorama gesture hands camera ownership to the user before
+    // the first POV event arrives. This prevents a simultaneous playback frame
+    // from snapping the drag back toward the Sun.
+    const stopFollowingSun = () => {
+      followSunRef.current = false
+    }
+    container.addEventListener('pointerdown', stopFollowingSun, { passive: true })
+    container.addEventListener('wheel', stopFollowingSun, { passive: true })
 
     const measure = () => {
       const { height, width } = container.getBoundingClientRect()
@@ -364,6 +389,8 @@ export function useStreetView(
     if (typeof ResizeObserver === 'undefined') {
       window.addEventListener('resize', measure)
       return () => {
+        container.removeEventListener('pointerdown', stopFollowingSun)
+        container.removeEventListener('wheel', stopFollowingSun)
         window.removeEventListener('resize', measure)
         if (resizeFrameRef.current != null) window.cancelAnimationFrame(resizeFrameRef.current)
       }
@@ -372,6 +399,8 @@ export function useStreetView(
     const resizeObserver = new ResizeObserver(measure)
     resizeObserver.observe(container)
     return () => {
+      container.removeEventListener('pointerdown', stopFollowingSun)
+      container.removeEventListener('wheel', stopFollowingSun)
       resizeObserver.disconnect()
       if (resizeFrameRef.current != null) window.cancelAnimationFrame(resizeFrameRef.current)
     }
@@ -448,13 +477,14 @@ export function useStreetView(
         lookupRadiusRef.current = result.radiusMeters
         const target = sunToStreetViewPov(snapshotRef.current.sun, STREET_VIEW.zoom)
         targetCameraRef.current = target
+        followSunRef.current = true
         lastAppliedTimeRef.current = snapshotRef.current.date.getTime()
         movementTrackerRef.current.markProgrammatic(result.pano, result.position)
         instances.panorama.setPano(result.pano)
         instances.panorama.setPov({ heading: target.heading, pitch: target.pitch })
         instances.panorama.setZoom(target.zoom)
         instances.panorama.setVisible(activeRef.current)
-        updateCameraFromPanorama()
+        readCameraFromPanorama()
         updateLinksFromPanorama()
         panoramaReadyRef.current = true
         setPanoramaState({
@@ -490,7 +520,7 @@ export function useStreetView(
     observer.lng,
     observer.source,
     retryNonce,
-    updateCameraFromPanorama,
+    readCameraFromPanorama,
     updateLinksFromPanorama,
   ])
 
@@ -498,6 +528,7 @@ export function useStreetView(
   useEffect(() => {
     if (panoramaState.status === 'demo') {
       const target = sunToStreetViewPov(snapshotRef.current.sun, STREET_VIEW.zoom)
+      followSunRef.current = true
       setCamera(target)
       setCentered(true)
       return
@@ -508,11 +539,16 @@ export function useStreetView(
     if (!panorama) return
     const target = sunToStreetViewPov(snapshotRef.current.sun, STREET_VIEW.zoom)
     targetCameraRef.current = target
-    panorama.setPov({ heading: target.heading, pitch: target.pitch })
-    panorama.setZoom(target.zoom)
     lastAppliedTimeRef.current = snapshotTime
-    updateCameraFromPanorama()
-  }, [snapshotTime, panoramaState.status, updateCameraFromPanorama])
+
+    // Follow the Sun while the view is centred. Once the user pans away, keep
+    // their chosen camera stable and only reproject the marker at the new time;
+    // otherwise playback visibly fights a horizontal drag on every frame.
+    if (followSunRef.current) {
+      panorama.setPov({ heading: target.heading, pitch: target.pitch })
+      readCameraFromPanorama()
+    }
+  }, [snapshotTime, panoramaState.status, readCameraFromPanorama])
 
   useEffect(() => {
     const panorama = panoramaRef.current
@@ -528,10 +564,11 @@ export function useStreetView(
     if (!panorama || panoramaState.status !== 'ready') return
     const target = sunToStreetViewPov(snapshotRef.current.sun, STREET_VIEW.zoom)
     targetCameraRef.current = target
+    followSunRef.current = true
     panorama.setPov({ heading: target.heading, pitch: target.pitch })
     panorama.setZoom(target.zoom)
-    updateCameraFromPanorama()
-  }, [panoramaState.status, updateCameraFromPanorama])
+    readCameraFromPanorama()
+  }, [panoramaState.status, readCameraFromPanorama])
 
   /** Walk to an adjacent panorama; position_changed performs the URL sync. */
   const moveTo = useCallback((pano: string) => {

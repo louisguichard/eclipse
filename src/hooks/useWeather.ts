@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { WEATHER } from '../config/weather'
-import { fetchWeatherDay, WeatherForecastError, weatherAtTime } from '../lib/weather'
+import { fetchTimeZone, fetchWeatherDay, WeatherForecastError, weatherAtTime } from '../lib/weather'
 import type { LatLng } from '../types'
 import type { WeatherDayForecast, WeatherResult, WeatherStatus } from '../types/weather'
 
@@ -15,14 +15,29 @@ export function useWeather(location: LatLng, selectedTime: Date): WeatherResult 
   } | null>(null)
   const [status, setStatus] = useState<WeatherStatus>('idle')
   const [error, setError] = useState<string | null>(null)
+  const [timeZoneState, setTimeZoneState] = useState<{
+    key: string
+    value: string
+  } | null>(null)
   const [revision, setRevision] = useState(0)
+  const coordinateKey = `${roundedLat},${roundedLng}`
   const requestKey = `${roundedLat},${roundedLng}:${dateKey}:${revision}`
   const forecast = forecastState?.key === requestKey ? forecastState.forecast : null
+  const resolvedTimeZone = timeZoneState?.key === coordinateKey ? timeZoneState.value : null
 
   useEffect(() => {
     const controller = new AbortController()
     setStatus('idle')
     setError(null)
+    void fetchTimeZone(
+      { lat: Number(roundedLat), lng: Number(roundedLng) },
+      { signal: controller.signal },
+    ).then((timeZone) => {
+      if (!controller.signal.aborted) setTimeZoneState({ key: coordinateKey, value: timeZone })
+    }).catch(() => {
+      // Forecast loading has its own visible status. A zone lookup failure is
+      // deliberately quiet; successful forecast metadata remains a fallback.
+    })
     const timeout = window.setTimeout(() => {
       setStatus('loading')
       fetchWeatherDay(
@@ -49,7 +64,7 @@ export function useWeather(location: LatLng, selectedTime: Date): WeatherResult 
       window.clearTimeout(timeout)
       controller.abort()
     }
-  }, [forecastDate, requestKey, roundedLat, roundedLng])
+  }, [coordinateKey, forecastDate, requestKey, roundedLat, roundedLng])
 
   const snapshot = useMemo(
     () => forecast ? weatherAtTime(forecast, selectedTime) : null,
@@ -61,7 +76,7 @@ export function useWeather(location: LatLng, selectedTime: Date): WeatherResult 
   return {
     status: status === 'ready' && !snapshot ? 'unavailable' : status,
     snapshot,
-    timeZone: forecast?.timezone ?? null,
+    timeZone: resolvedTimeZone ?? forecast?.timezone ?? null,
     error: status === 'ready' && !snapshot ? 'Prévision pas encore disponible' : error,
     refresh,
   }

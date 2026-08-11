@@ -334,6 +334,14 @@ La publication francilienne obtenue contient 26 243 PNG visibles pour environ
 classes intermédiaires restent dans `data/lidar/`, ignoré par Git, tandis que
 seules les petites pyramides dérivées sont envoyées vers R2.
 
+La carte conserve la plage de zoom native de Google, sans lui imposer de borne
+liée aux données. La couche reste disponible sur toute la plage Web Mercator
+utile (zooms 0 à 30) : sous le premier zoom publié, elle compose uniquement les
+tuiles source qui recoupent l’emprise ; au-delà du dernier, elle agrandit la
+dernière tuile et en recadre le quadrant correspondant. Le jaune reste ainsi
+aligné lors d’un zoom avant comme arrière, sans prétendre ajouter du détail
+LiDAR absent de la pyramide.
+
 Le modèle calcule toujours quatre classes, mais la carte n’en peint qu’une : le **dégagement probable**, en jaune. « Horizon sensible », « incertain » et « masquage probable » restent transparents, pour que la carte réponde à une seule question au lieu d’imposer une légende à décoder. Les zones jaunes sont par ailleurs **élargies au rendu** — une rue dégagée de 10 m serait invisible au zoom ville — donc leurs contours sont indicatifs et non métriques ; la classification enregistrée, elle, conserve son étendue exacte.
 
 L’élargissement suit le zoom. Les tuiles sont échantillonnées au point, si bien qu’un motif plus fin qu’un pixel n’est touché que par hasard : la couche disparaissait quand on dézoomait. Chaque niveau grossit donc le masque d’un demi-pixel de terrain — 4 m au plus près, 52 m au zoom 10 — ce qui revient à demander « une cellule dégagée existe-t-elle dans ce pixel ». La bande jaune s’amincit en s’éloignant au lieu de s’évanouir, sans jamais déborder du pixel qui la porte. Le détail par zoom figure dans `tiles.renderDilationMetersByZoom` du manifeste.
@@ -360,7 +368,7 @@ Le téléchargement IGN est repris bloc par bloc. Pour modifier la résolution o
 
 ## Prévision météo
 
-Le navigateur demande à [Open-Meteo Forecast API](https://open-meteo.com/en/docs) les valeurs horaires autour du 12 août pour les coordonnées arrondies : température, code météo, couverture nuageuse, probabilité de pluie, visibilité et vent. `timezone=auto` fournit le fuseau IANA local et `timeformat=unixtime` garde des instants UTC non ambigus ; une enveloppe de trois dates civiles couvre aussi les lieux situés de l’autre côté de la ligne de changement de date. Le composant affiche l’heure disponible la plus proche de la timeline.
+Le navigateur demande à [Open-Meteo Forecast API](https://open-meteo.com/en/docs) les valeurs horaires autour du 12 août pour les coordonnées arrondies : température, code météo, couverture nuageuse, probabilité de pluie, visibilité et vent. `timezone=auto` fournit le fuseau IANA local et `timeformat=unixtime` garde des instants UTC non ambigus ; une enveloppe de trois dates civiles couvre aussi les lieux situés de l’autre côté de la ligne de changement de date. Le composant affiche l’heure disponible la plus proche de la timeline. Une requête de métadonnées légère résout en parallèle le fuseau local sans date imposée : les horloges restent donc locales même lorsque la prévision du 12 août se trouve encore hors de la fenêtre météo.
 
 Les réponses sont mises en cache 15 minutes en mémoire. Déplacer la timeline ne relance pas de requête ; changer de position déclenche une requête temporisée et annule l’ancienne. Une prévision reste incertaine et évolutive : elle ne constitue jamais une garantie de ciel dégagé.
 
@@ -377,7 +385,7 @@ pitch   = altitude solaire, limitée à [-90°, +90°]
 
 À Paris vers le maximum, le POV attendu est donc environ `heading: 284`, `pitch: +7.7` : ouest-nord-ouest et légèrement au-dessus de l’horizon. Le mode `?debug=true` expose les valeurs source et le POV final pour repérer une inversion de signe ou une erreur de convention. Référence : [StreetViewPov](https://developers.google.com/maps/documentation/javascript/reference/street-view#StreetViewPov).
 
-Cette transformation vise une direction angulaire, pas un pixel garanti : nivellement du panorama, distorsion, recadrage, champ de vue, altitude de prise de vue et capteurs du véhicule peuvent introduire un petit écart visuel.
+Cette transformation vise une direction angulaire, pas un pixel garanti : nivellement du panorama, distorsion, recadrage, champ de vue, altitude de prise de vue et capteurs du véhicule peuvent introduire un petit écart visuel. Les changements de POV sont regroupés sur la trame d’animation suivante pour garder le marqueur synchronisé avec le canvas. La lecture suit le Soleil tant que la vue reste centrée ; dès que l’utilisateur tourne le panorama, sa caméra est respectée et seul le marqueur est reprojeté. Le bouton de recentrage réactive le suivi. La projection suit aussi les zooms fractionnaires de Street View avec la focale perspective réellement rendue, afin que la molette et le pincement restent disponibles sans détacher le marqueur du panorama.
 
 L’imagerie Street View n’est pas recolorée. Un filtre crépusculaire modifierait aussi les contrôles et attributions Google et n’est pas une intégration documentée ; l’ambiance du projet vient uniquement du cadre et des composants de l’application. Voir les [règles d’attribution Maps JavaScript](https://developers.google.com/maps/documentation/javascript/policies) et les [Google Geo Guidelines](https://about.google/brand-resource-center/products-and-services/geo-guidelines/).
 

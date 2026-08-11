@@ -3,6 +3,8 @@
 import { describe, expect, it } from 'vitest'
 import type { VisibilityDatasetManifest } from '../types/visibility'
 import {
+  VISIBILITY_MAX_DISPLAY_ZOOM,
+  VISIBILITY_MIN_DISPLAY_ZOOM,
   buildVisibilityTileUrl,
   createVisibilityImageMapType,
   geographicBoundsIntersect,
@@ -12,6 +14,7 @@ import {
   normalizeTileX,
   pointInGeographicBounds,
   preferredVisibilityDatasetAtPoint,
+  resolveVisibilityTileRequests,
   tileGeographicBounds,
   tileIntersectsBounds,
   visibilityDatasetsForView,
@@ -47,6 +50,23 @@ const READY_MANIFEST: VisibilityDatasetManifest = {
   legend: [],
   attribution: 'Fixture',
   disclaimer: 'Fixture',
+}
+
+const COARSE_MANIFEST: VisibilityDatasetManifest = {
+  ...READY_MANIFEST,
+  id: 'idf-coarse',
+  version: 'idf-coarse-v1',
+  label: 'Île-de-France · 5 m',
+  coverage: { north: 49.25, south: 48.1, east: 3.6, west: 1.4 },
+  surface: {
+    ...READY_MANIFEST.surface,
+    resolutionMeters: 5,
+  },
+  tiles: {
+    ...READY_MANIFEST.tiles!,
+    minZoom: 8,
+    maxZoom: 15,
+  },
 }
 
 describe('Web Mercator tile geometry', () => {
@@ -134,23 +154,6 @@ describe('visibility tile URLs', () => {
 })
 
 describe('visibility dataset catalogue selection', () => {
-  const COARSE_MANIFEST: VisibilityDatasetManifest = {
-    ...READY_MANIFEST,
-    id: 'idf-coarse',
-    version: 'idf-coarse-v1',
-    label: 'Île-de-France · 5 m',
-    coverage: { north: 49.25, south: 48.1, east: 3.6, west: 1.4 },
-    surface: {
-      ...READY_MANIFEST.surface,
-      resolutionMeters: 5,
-    },
-    tiles: {
-      ...READY_MANIFEST.tiles!,
-      minZoom: 8,
-      maxZoom: 15,
-    },
-  }
-
   it('preserves fine-to-coarse priority at an overlapping point', () => {
     const catalogue = [READY_MANIFEST, COARSE_MANIFEST]
     const selected = visibilityDatasetsForView(
@@ -185,7 +188,7 @@ describe('visibility dataset catalogue selection', () => {
     )).toEqual([])
   })
 
-  it('honours zoom ranges and distinguishes unpublished known coverage', () => {
+  it('keeps published layers selected through the complete map zoom range', () => {
     const unavailable: VisibilityDatasetManifest = {
       ...COARSE_MANIFEST,
       availability: 'unavailable',
@@ -194,9 +197,138 @@ describe('visibility dataset catalogue selection', () => {
     }
     const point = { lat: 48.4, lng: 2.7 }
 
-    expect(visibilityDatasetsForView([COARSE_MANIFEST], point, null, 16)).toEqual([])
+    expect(visibilityDatasetsForView(
+      [COARSE_MANIFEST],
+      point,
+      null,
+      VISIBILITY_MAX_DISPLAY_ZOOM,
+    )).toEqual([COARSE_MANIFEST])
+    expect(visibilityDatasetsForView(
+      [COARSE_MANIFEST],
+      point,
+      null,
+      VISIBILITY_MAX_DISPLAY_ZOOM + 1,
+    )).toEqual([])
+    expect(visibilityDatasetsForView(
+      [READY_MANIFEST],
+      { lat: 48.8566, lng: 2.3522 },
+      null,
+      VISIBILITY_MIN_DISPLAY_ZOOM,
+    )).toEqual([READY_MANIFEST])
+    expect(visibilityDatasetsForView(
+      [COARSE_MANIFEST],
+      point,
+      null,
+      VISIBILITY_MIN_DISPLAY_ZOOM - 1,
+    )).toEqual([])
     expect(preferredVisibilityDatasetAtPoint([unavailable], point)).toBeNull()
     expect(knownVisibilityCoverageAtPoint([unavailable], point)?.id).toBe('idf-coarse')
+  })
+})
+
+describe('visibility tile overzoom', () => {
+  it('maps a displayed child tile to the precise last-level source quadrant', () => {
+    const displayedCoordinate = latLngToTileCoordinate(48.86, 2.36, 16)
+    const requests = resolveVisibilityTileRequests(COARSE_MANIFEST, displayedCoordinate, 16)
+
+    expect(requests).toEqual([{
+      url: 'https://tiles.example/idf-coarse-v1/15/16598/11272.png',
+      sourceCoordinate: { x: 16598, y: 11272 },
+      sourceZoom: 15,
+      scale: 2,
+      left: -256,
+      top: -256,
+    }])
+  })
+
+  it('normalizes wrapped displayed coordinates before selecting their source tile', () => {
+    const zoom = 16
+    const displayedCoordinate = latLngToTileCoordinate(48.86, 2.36, zoom)
+    const requests = resolveVisibilityTileRequests(
+      COARSE_MANIFEST,
+      { x: displayedCoordinate.x + 2 ** zoom, y: displayedCoordinate.y },
+      zoom,
+    )
+
+    expect(requests[0]?.sourceCoordinate).toEqual({ x: 16598, y: 11272 })
+    expect(requests[0]?.left).toBe(-256)
+  })
+
+  it('stops resolving tiles above the shared display ceiling', () => {
+    const zoom = VISIBILITY_MAX_DISPLAY_ZOOM + 1
+
+    expect(resolveVisibilityTileRequests(
+      READY_MANIFEST,
+      { x: 0, y: 0 },
+      zoom,
+    )).toEqual([])
+  })
+})
+
+describe('visibility tile underzoom', () => {
+  it('resolves fine and regional coverage at every map zoom the UI permits', () => {
+    for (const manifest of [READY_MANIFEST, COARSE_MANIFEST]) {
+      for (
+        let zoom = VISIBILITY_MIN_DISPLAY_ZOOM;
+        zoom <= VISIBILITY_MAX_DISPLAY_ZOOM;
+        zoom += 1
+      ) {
+        const displayedCoordinate = latLngToTileCoordinate(48.86, 2.36, zoom)
+        const requests = resolveVisibilityTileRequests(
+          manifest,
+          displayedCoordinate,
+          zoom,
+        )
+
+        expect(requests.length, `${manifest.id} au zoom ${zoom}`).toBeGreaterThan(0)
+      }
+    }
+  })
+
+  it('builds a bounded world-scale mosaic from intersecting source tiles only', () => {
+    const displayedCoordinate = latLngToTileCoordinate(
+      48.8566,
+      2.3522,
+      VISIBILITY_MIN_DISPLAY_ZOOM,
+    )
+    const requests = resolveVisibilityTileRequests(
+      READY_MANIFEST,
+      displayedCoordinate,
+      VISIBILITY_MIN_DISPLAY_ZOOM,
+    )
+
+    expect(requests.map(({ sourceCoordinate }) => sourceCoordinate)).toEqual([
+      { x: 517, y: 351 },
+      { x: 518, y: 351 },
+      { x: 519, y: 351 },
+      { x: 517, y: 352 },
+      { x: 518, y: 352 },
+      { x: 519, y: 352 },
+      { x: 517, y: 353 },
+      { x: 518, y: 353 },
+      { x: 519, y: 353 },
+    ])
+    expect(requests.map(({ scale, left, top }) => ({ scale, left, top }))).toEqual([
+      { scale: 1 / 1024, left: 129.25, top: 87.75 },
+      { scale: 1 / 1024, left: 129.5, top: 87.75 },
+      { scale: 1 / 1024, left: 129.75, top: 87.75 },
+      { scale: 1 / 1024, left: 129.25, top: 88 },
+      { scale: 1 / 1024, left: 129.5, top: 88 },
+      { scale: 1 / 1024, left: 129.75, top: 88 },
+      { scale: 1 / 1024, left: 129.25, top: 88.25 },
+      { scale: 1 / 1024, left: 129.5, top: 88.25 },
+      { scale: 1 / 1024, left: 129.75, top: 88.25 },
+    ])
+  })
+
+  it('does not resolve below the minimum map zoom', () => {
+    const zoom = VISIBILITY_MIN_DISPLAY_ZOOM - 1
+
+    expect(resolveVisibilityTileRequests(
+      READY_MANIFEST,
+      { x: 0, y: 0 },
+      zoom,
+    )).toEqual([])
   })
 })
 
@@ -222,8 +354,8 @@ describe('ImageMapType factory', () => {
     expect(result.status).toBe('ready')
     if (result.status !== 'ready') throw new Error('Expected a ready map type')
     const mapType = result.mapType
-    expect(mapType.minZoom).toBe(10)
-    expect(mapType.maxZoom).toBe(17)
+    expect(mapType.minZoom).toBe(VISIBILITY_MIN_DISPLAY_ZOOM)
+    expect(mapType.maxZoom).toBe(VISIBILITY_MAX_DISPLAY_ZOOM)
     expect((mapType.tileSize as unknown as FakeSize).width).toBe(256)
 
     const tile = mapType.getTile(
@@ -234,6 +366,96 @@ describe('ImageMapType factory', () => {
     const image = tile.querySelector('img')
     expect(tile.style.opacity).toBe('1')
     expect(image?.src).toContain('/14/8299/5636.png')
+  })
+
+  it('crops and scales the final source level instead of dropping closer tiles', () => {
+    class FakeSize {
+      width: number
+      height: number
+
+      constructor(width: number, height: number) {
+        this.width = width
+        this.height = height
+      }
+    }
+    const result = createVisibilityImageMapType(
+      { Size: FakeSize as unknown as typeof google.maps.Size },
+      COARSE_MANIFEST,
+      0.92,
+    )
+    if (result.status !== 'ready') throw new Error('Expected a ready map type')
+
+    const displayedCoordinate = latLngToTileCoordinate(48.86, 2.36, 16)
+    const tile = result.mapType.getTile(
+      displayedCoordinate as google.maps.Point,
+      16,
+      document,
+    ) as HTMLDivElement
+    const image = tile.querySelector('img')
+
+    expect(image?.src).toContain('/15/16598/11272.png')
+    expect(image?.style.left).toBe('-256px')
+    expect(image?.style.top).toBe('-256px')
+    expect(image?.style.transform).toBe('scale(2)')
+    expect(image?.style.transformOrigin).toBe('top left')
+    expect(image?.style.imageRendering).toBe('pixelated')
+    expect(image?.style.maxWidth).toBe('none')
+  })
+
+  it('composes first-level source tiles instead of dropping wider map tiles', () => {
+    class FakeSize {
+      width: number
+      height: number
+
+      constructor(width: number, height: number) {
+        this.width = width
+        this.height = height
+      }
+    }
+    const result = createVisibilityImageMapType(
+      { Size: FakeSize as unknown as typeof google.maps.Size },
+      READY_MANIFEST,
+      0.84,
+    )
+    if (result.status !== 'ready') throw new Error('Expected a ready map type')
+
+    const displayedCoordinate = latLngToTileCoordinate(
+      48.8566,
+      2.3522,
+      VISIBILITY_MIN_DISPLAY_ZOOM,
+    )
+    const tile = result.mapType.getTile(
+      displayedCoordinate as google.maps.Point,
+      VISIBILITY_MIN_DISPLAY_ZOOM,
+      document,
+    ) as HTMLDivElement
+    const images = [...tile.querySelectorAll('img')]
+
+    expect(tile.style.opacity).toBe('0.84')
+    expect(images).toHaveLength(9)
+    expect(images.map(({ src }) => src)).toEqual([
+      'https://tiles.example/2026.08.12%2Bsurface/10/517/351.png',
+      'https://tiles.example/2026.08.12%2Bsurface/10/518/351.png',
+      'https://tiles.example/2026.08.12%2Bsurface/10/519/351.png',
+      'https://tiles.example/2026.08.12%2Bsurface/10/517/352.png',
+      'https://tiles.example/2026.08.12%2Bsurface/10/518/352.png',
+      'https://tiles.example/2026.08.12%2Bsurface/10/519/352.png',
+      'https://tiles.example/2026.08.12%2Bsurface/10/517/353.png',
+      'https://tiles.example/2026.08.12%2Bsurface/10/518/353.png',
+      'https://tiles.example/2026.08.12%2Bsurface/10/519/353.png',
+    ])
+    expect(images.map(({ style }) => [style.left, style.top, style.transform])).toEqual([
+      ['129.25px', '87.75px', 'scale(0.0009765625)'],
+      ['129.5px', '87.75px', 'scale(0.0009765625)'],
+      ['129.75px', '87.75px', 'scale(0.0009765625)'],
+      ['129.25px', '88px', 'scale(0.0009765625)'],
+      ['129.5px', '88px', 'scale(0.0009765625)'],
+      ['129.75px', '88px', 'scale(0.0009765625)'],
+      ['129.25px', '88.25px', 'scale(0.0009765625)'],
+      ['129.5px', '88.25px', 'scale(0.0009765625)'],
+      ['129.75px', '88.25px', 'scale(0.0009765625)'],
+    ])
+    expect(images.every(({ style }) => style.imageRendering === '')).toBe(true)
   })
 
   it('turns a missing CDN tile into a transparent tile without a broken image', () => {

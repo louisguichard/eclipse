@@ -3,15 +3,6 @@ import type { HorizontalCoordinates, LatLng, StreetViewCamera } from '../types'
 const DEG_TO_RAD = Math.PI / 180
 const RAD_TO_DEG = 180 / Math.PI
 const EARTH_RADIUS_METERS = 6_371_008.8
-const WIDE_ANGLE_BLEND_START = 120 * DEG_TO_RAD
-
-function wideAngleProjectionWeight(horizontalFov: number): number {
-  const progress = Math.max(
-    0,
-    Math.min(1, (horizontalFov - WIDE_ANGLE_BLEND_START) / (Math.PI - WIDE_ANGLE_BLEND_START)),
-  )
-  return progress * progress * (3 - 2 * progress)
-}
 
 export function normalizeHeading(value: number): number {
   return ((value % 360) + 360) % 360
@@ -88,9 +79,18 @@ export function destinationPoint(
   }
 }
 
-/** Street View's documented relation between zoom level and horizontal field. */
+/**
+ * Horizontal perspective field rendered by Street View.
+ *
+ * A zoom increment doubles the camera focal length. Expressing that focal
+ * length as an angle gives 2·atan(2^(1−zoom)): zoom 1 is 90°, while the
+ * fractional values emitted during wheel/pinch animations remain continuous.
+ * Dividing 180° by 2^zoom only agrees at zoom 1 and makes DOM overlays drift
+ * away from the WebGL panorama everywhere else.
+ */
 export function horizontalFieldOfView(zoom: number): number {
-  return 180 / 2 ** Math.max(0, zoom)
+  const focalScale = 2 ** (1 - Math.max(0, zoom))
+  return 2 * Math.atan(focalScale) * RAD_TO_DEG
 }
 
 /**
@@ -109,21 +109,16 @@ export function angularDiameterToPixels(
 ): number {
   const horizontalFov = horizontalFieldOfView(camera.zoom) * DEG_TO_RAD
   const halfFov = horizontalFov / 2
-  const spread = 2 * Math.tan(halfFov)
-  if (!Number.isFinite(spread) || spread <= 0) return 0
-  const diameter = angularDiameterDegrees * DEG_TO_RAD
-  const tangentNormalized = diameter / spread
-  const angularNormalized = diameter / horizontalFov
-  const wideAngleWeight = wideAngleProjectionWeight(horizontalFov)
-  const normalized =
-    tangentNormalized * (1 - wideAngleWeight) + angularNormalized * wideAngleWeight
+  const focalSpread = Math.tan(halfFov)
+  if (!Number.isFinite(focalSpread) || focalSpread <= 0) return 0
+  const halfDiameter = angularDiameterDegrees * DEG_TO_RAD / 2
+  const normalized = Math.tan(halfDiameter) / focalSpread
   return Math.max(0, normalized * Math.max(0, viewportWidth))
 }
 
 /**
  * Projection of a horizontal sky direction into a Street View viewport.
- * Ordinary zooms use perspective coordinates; panoramic zooms transition to
- * angular coordinates. Returns normalized values with (0.5, 0.5) at center.
+ * Returns normalized perspective values with (0.5, 0.5) at center.
  */
 export function horizontalToViewportPoint(
   target: HorizontalCoordinates,
@@ -158,27 +153,9 @@ export function horizontalToViewportPoint(
   const vertical = dot(targetVector, up)
   const horizontalFov = horizontalFieldOfView(camera.zoom) * DEG_TO_RAD
   const safeAspectRatio = Math.max(0.2, aspectRatio)
-  const tangentVerticalFov = 2 * Math.atan(Math.tan(horizontalFov / 2) / safeAspectRatio)
-  const angularVerticalFov = Math.min(Math.PI, horizontalFov / safeAspectRatio)
-  const yaw = Math.atan2(horizontal, depth)
-  const elevation = Math.atan2(vertical, Math.hypot(depth, horizontal))
-  const angularX = 0.5 + yaw / horizontalFov
-  const angularY = 0.5 - elevation / angularVerticalFov
-  const wideAngleWeight = wideAngleProjectionWeight(horizontalFov)
-
-  // Google allows fractional Street View zoom levels and often settles just
-  // above zero when the user zooms all the way out. Near that 180° field of
-  // view, a pinhole (tangent) projection becomes singular and collapses every
-  // direction toward the centre. Blend into panoramic angular coordinates
-  // above 120°; the normal/default zoom keeps the original tangent projection.
-  let x = angularX
-  let y = angularY
-  if (wideAngleWeight < 1) {
-    const tangentX = 0.5 + horizontal / (2 * depth * Math.tan(horizontalFov / 2))
-    const tangentY = 0.5 - vertical / (2 * depth * Math.tan(tangentVerticalFov / 2))
-    x = tangentX * (1 - wideAngleWeight) + angularX * wideAngleWeight
-    y = tangentY * (1 - wideAngleWeight) + angularY * wideAngleWeight
-  }
+  const verticalFov = 2 * Math.atan(Math.tan(horizontalFov / 2) / safeAspectRatio)
+  const x = 0.5 + horizontal / (2 * depth * Math.tan(horizontalFov / 2))
+  const y = 0.5 - vertical / (2 * depth * Math.tan(verticalFov / 2))
 
   return {
     x,

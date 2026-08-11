@@ -2,7 +2,7 @@ import { useMemo } from 'react'
 import { Pause, Play } from 'lucide-react'
 import type { TimelinePlaybackController } from '../hooks/useTimelinePlayback'
 import { timelineMinuteFromDate } from '../lib/astronomy'
-import { formatLocalTime, formatPercent } from '../lib/format'
+import { formatLocalTime, formatObscuration } from '../lib/format'
 import type { EclipseSnapshot } from '../types'
 
 type TimelineProps = {
@@ -77,10 +77,10 @@ export function Timeline({
           onPointerDown={stopPlayback}
           onChange={(event) => {
             stopPlayback()
-            onMinuteChange(Math.round(Number(event.target.value)))
+            onMinuteChange(Number(event.target.value))
           }}
           aria-label="Heure simulée"
-          aria-valuetext={`${formatLocalTime(snapshot.date, timeZone)}, ${snapshot.phaseLabel}, ${formatPercent(snapshot.obscuration)} occulté`}
+          aria-valuetext={`${formatLocalTime(snapshot.date, timeZone)}, ${snapshot.phaseLabel}, ${formatObscuration(snapshot.obscuration)} occulté`}
           style={{ '--progress': `${progress}%` } as React.CSSProperties}
         />
 

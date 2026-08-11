@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { formatLocalDateTime, formatLocalTime } from './format'
+import { formatLocalDateTime, formatLocalTime, formatObscuration } from './format'
 
 const INSTANT = new Date('2026-08-12T18:17:00.000Z')
 
@@ -17,5 +17,13 @@ describe('local date and time formatting', () => {
     expect(formatLocalTime(INSTANT, null)).toBe('18:17')
     expect(formatLocalTime(INSTANT, 'Not/A_Zone')).toBe('18:17')
     expect(formatLocalDateTime(INSTANT, 'Not/A_Zone')).toContain('18:17:00')
+  })
+})
+
+describe('obscuration formatting', () => {
+  it('distinguishes first measurable contact from a truly clear disc', () => {
+    expect(formatObscuration(0)).toBe('0 %')
+    expect(formatObscuration(0.00095)).toBe('< 1 %')
+    expect(formatObscuration(0.92)).toBe('92\u00a0%')
   })
 })

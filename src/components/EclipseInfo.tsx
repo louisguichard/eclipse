@@ -1,4 +1,4 @@
-import { azimuthToCompassShort, formatDegrees, formatPercent } from '../lib/format'
+import { azimuthToCompassShort, formatDegrees, formatObscuration } from '../lib/format'
 import { SunDisc } from './SunDisc'
 import type { EclipseSnapshot } from '../types'
 
@@ -26,7 +26,7 @@ export function EclipseInfo({ snapshot, cloudCover = null }: EclipseInfoProps) {
       <div className="readout__head">
         <SunDisc snapshot={snapshot} />
         <div className="readout__headline">
-          <strong>{formatPercent(snapshot.obscuration)}</strong>
+          <strong>{formatObscuration(snapshot.obscuration)}</strong>
           <span className="readout__suffix">du Soleil caché</span>
         </div>
       </div>

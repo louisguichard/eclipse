@@ -5,6 +5,7 @@ export const WEATHER = {
   requestDebounceMilliseconds: 250,
   requestTimeoutMilliseconds: 8_000,
   cacheDurationMilliseconds: 15 * 60 * 1_000,
+  timeZoneCacheDurationMilliseconds: 24 * 60 * 60 * 1_000,
   coordinatePrecision: 3,
   attributionUrl: 'https://open-meteo.com/',
 } as const

@@ -700,7 +700,8 @@ input:focus-visible {
   flex-direction: column;
   align-items: center;
   pointer-events: none;
-  transition: opacity 160ms var(--ease), transform 160ms var(--ease);
+  will-change: left, top, opacity;
+  transition: opacity 120ms var(--ease);
 }
 
 .sun-marker__reticle {
@@ -1994,9 +1995,8 @@ input:focus-visible {
     gap: 8px 10px;
     min-height: calc(100px + env(safe-area-inset-top));
     padding: calc(12px + env(safe-area-inset-top)) 14px 10px;
-    border-bottom: 1px solid var(--stroke);
-    background: rgb(4 8 15 / 0.88);
-    backdrop-filter: var(--glass);
+    border: 0;
+    background: transparent;
   }
 
   .brand { flex: 1 1 auto; }
@@ -2029,8 +2029,6 @@ input:focus-visible {
     padding-bottom: env(safe-area-inset-bottom);
     border-top: 1px solid var(--stroke);
     background: rgb(4 8 15 / 0.86);
-    backdrop-filter: var(--glass);
-    -webkit-backdrop-filter: var(--glass);
   }
 
   .mobile-tabs::before {
@@ -2367,8 +2365,10 @@ input:focus-visible {
     padding: calc(52px + env(safe-area-inset-top)) var(--mobile-header-inline) 0;
     border: 0;
     background: transparent;
-    backdrop-filter: none;
+    /* Keep the panorama continuous through the status/header area. A backdrop
+       filter here creates a visibly softer full-width strip on phones. */
     -webkit-backdrop-filter: none;
+    backdrop-filter: none;
   }
 
   .brand {
@@ -2672,24 +2672,15 @@ input:focus-visible {
     display: block;
     background: linear-gradient(
       0deg,
-      rgb(4 6 12 / 0.72),
-      rgb(4 6 12 / 0.32) 38%,
+      rgb(4 6 12 / 0.46),
+      rgb(4 6 12 / 0.24) 38%,
       transparent min(70%, 420px)
     );
-    -webkit-mask-image: linear-gradient(
-      to bottom,
-      #000 0,
-      #000 calc(100% - var(--gmp-safe-bottom) - var(--gmp-feather)),
-      transparent calc(100% - var(--gmp-safe-bottom)),
-      transparent 100%
-    );
-    mask-image: linear-gradient(
-      to bottom,
-      #000 0,
-      #000 calc(100% - var(--gmp-safe-bottom) - var(--gmp-feather)),
-      transparent calc(100% - var(--gmp-safe-bottom)),
-      transparent 100%
-    );
+    /* This base shade reaches the physical bottom of the viewport. The
+       stronger eclipse veil still fades before Google's legal row, but the
+       photograph no longer returns to a bright, visually separate strip. */
+    -webkit-mask-image: none;
+    mask-image: none;
     pointer-events: none;
   }
 
@@ -2704,7 +2695,7 @@ input:focus-visible {
 
   .sun-marker {
     z-index: 12;
-    transition: opacity 80ms linear, transform 80ms linear;
+    transition: opacity 70ms linear;
   }
 
   .sun-marker__mobile-observation {
@@ -3026,16 +3017,16 @@ input:focus-visible {
     gap: 0;
     padding: 4px;
     overflow: hidden;
-    border: 1px solid rgb(246 249 255 / 0.24);
+    border: 1px solid rgb(246 249 255 / 0.16);
     border-radius: 26px;
-    background: linear-gradient(145deg, rgb(28 39 56 / 0.76), rgb(5 9 17 / 0.68));
+    background: linear-gradient(145deg, rgb(10 15 24 / 0.96), rgb(3 6 12 / 0.94));
     box-shadow:
-      inset 0 1px 0 rgb(255 255 255 / 0.18),
-      inset 0 -1px 0 rgb(0 0 0 / 0.22),
+      inset 0 1px 0 rgb(255 255 255 / 0.09),
+      inset 0 -1px 0 rgb(0 0 0 / 0.34),
       0 18px 42px -20px rgb(0 0 0 / 0.95),
-      0 0 0 1px rgb(0 0 0 / 0.12);
-    backdrop-filter: blur(24px) saturate(1.5);
-    -webkit-backdrop-filter: blur(24px) saturate(1.5);
+      0 0 0 1px rgb(0 0 0 / 0.24);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
     transform: translateX(-50%);
   }
 
@@ -3046,14 +3037,14 @@ input:focus-visible {
     left: 4px;
     width: calc((100% - 8px) / 2);
     height: auto;
-    border: 0;
+    border: 1px solid rgb(255 255 255 / 0.11);
     border-radius: 22px;
     background:
-      radial-gradient(circle at 50% 115%, rgb(245 185 66 / 0.22), transparent 62%),
-      linear-gradient(145deg, rgb(255 255 255 / 0.25), rgb(255 255 255 / 0.11));
+      radial-gradient(circle at 50% 115%, rgb(245 185 66 / 0.12), transparent 64%),
+      linear-gradient(145deg, rgb(35 43 55 / 0.96), rgb(13 18 27 / 0.96));
     box-shadow:
-      inset 0 1px 0 rgb(255 255 255 / 0.24),
-      inset 0 -1px 0 rgb(0 0 0 / 0.18),
+      inset 0 1px 0 rgb(255 255 255 / 0.12),
+      inset 0 -1px 0 rgb(0 0 0 / 0.34),
       0 10px 22px -14px rgb(0 0 0 / 0.92);
     filter: none;
     transition: transform 240ms cubic-bezier(0.22, 0.8, 0.28, 1);
@@ -4048,12 +4039,14 @@ input:focus-visible {
     display: contents;
   }
 
-  /* The Google attribution row stays native. The twilight treatment now
-     feathers out above it, eliminating the old hard, bright strip without
-     recolouring Google's logo or legal links. */
+  /* The strong, time-varying eclipse veil still feathers out above Google's
+     attribution row. A lighter non-blurring base shade continues behind it,
+     avoiding a bright strip while keeping the legal copy readable. */
   .street-scene__stage {
-    --gmp-safe-bottom: 52px;
-    --gmp-feather: 82px;
+    /* Only the native attribution row is kept outside the strong eclipse veil.
+       The base mobile shade above still covers this area without any blur. */
+    --gmp-safe-bottom: 28px;
+    --gmp-feather: 24px;
   }
 }
 

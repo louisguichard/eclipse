@@ -118,6 +118,34 @@ describe('Street View camera geometry', () => {
     expect(point.y).toBeLessThan(0.4)
   })
 
+  it('scales a fixed panorama ray with Street View focal zoom', () => {
+    const target = { azimuth: 10, altitude: 0 }
+    const atZoomOne = horizontalToViewportPoint(
+      target,
+      { heading: 0, pitch: 0, zoom: 1 },
+      16 / 9,
+    )
+    const atZoomTwo = horizontalToViewportPoint(
+      target,
+      { heading: 0, pitch: 0, zoom: 2 },
+      16 / 9,
+    )
+
+    expect((atZoomTwo.x - 0.5) / (atZoomOne.x - 0.5)).toBeCloseTo(2, 12)
+    expect(atZoomTwo.y).toBeCloseTo(0.5, 12)
+  })
+
+  it('matches the calibrated native projection during a fractional wheel zoom', () => {
+    const point = horizontalToViewportPoint(
+      { azimuth: 273.6473, altitude: 16.6739 },
+      { heading: 284.27, pitch: 20.86, zoom: 2.3 },
+      1296 / 714,
+    )
+
+    expect(point.x).toBeCloseTo(0.2786, 4)
+    expect(point.y).toBeCloseTo(0.6528, 4)
+  })
+
   it('stays finite across low zoom levels and viewport shapes', () => {
     const sun = { azimuth: 284, altitude: 8 }
 
@@ -186,9 +214,11 @@ describe('apparent solar size', () => {
   const SUN_DIAMETER_DEGREES = 0.5259 // 2 × the 2026 maximum angular radius
 
   it('follows the Street View zoom-to-field relation', () => {
-    expect(horizontalFieldOfView(0)).toBe(180)
+    expect(horizontalFieldOfView(0)).toBeCloseTo(126.8699, 4)
+    expect(horizontalFieldOfView(0.5)).toBeCloseTo(109.4712, 4)
     expect(horizontalFieldOfView(1)).toBe(90)
-    expect(horizontalFieldOfView(3)).toBe(22.5)
+    expect(horizontalFieldOfView(2.3)).toBeCloseTo(44.2067, 4)
+    expect(horizontalFieldOfView(3)).toBeCloseTo(28.0725, 4)
   })
 
   it('renders the Sun as the few pixels it really is', () => {
@@ -198,21 +228,17 @@ describe('apparent solar size', () => {
     expect(pixels).toBeLessThan(7)
   })
 
-  it('grows the disc with the tangent of the half-field, not the field itself', () => {
-    // Zoom 1 → 3 narrows the field 4× (90° → 22.5°) but magnifies by
-    // tan(45°)/tan(11.25°) ≈ 5.03: the projection is perspective, not linear.
+  it('doubles perspective magnification at each zoom level', () => {
     const wide = angularDiameterToPixels(SUN_DIAMETER_DEGREES, { zoom: 1 }, 1400)
     const tight = angularDiameterToPixels(SUN_DIAMETER_DEGREES, { zoom: 3 }, 1400)
-    const expected = Math.tan((45 * Math.PI) / 180) / Math.tan((11.25 * Math.PI) / 180)
-    expect(tight / wide).toBeCloseTo(expected, 6)
-    expect(tight / wide).toBeGreaterThan(4)
+    expect(tight / wide).toBeCloseTo(4, 12)
   })
 
-  it('keeps a finite angular size at the 180° panoramic zoom', () => {
+  it('keeps a finite angular size at the fully zoomed-out level', () => {
     const pixels = angularDiameterToPixels(SUN_DIAMETER_DEGREES, { zoom: 0 }, 1400)
 
-    expect(pixels).toBeGreaterThan(4)
-    expect(pixels).toBeLessThan(5)
+    expect(pixels).toBeGreaterThan(3)
+    expect(pixels).toBeLessThan(4)
   })
 
   it('scales linearly with the viewport width', () => {

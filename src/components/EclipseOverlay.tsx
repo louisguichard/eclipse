@@ -1,5 +1,6 @@
 import { Cloud } from 'lucide-react'
 import { useId } from 'react'
+import { formatObscuration } from '../lib/format'
 import type { EclipseSnapshot } from '../types'
 
 export type EclipseOverlayProps = {
@@ -44,7 +45,7 @@ export function EclipseOverlay({
     ? Math.min(MAGNIFIED_RANGE.max, Math.max(MAGNIFIED_RANGE.min, boxSize * MAGNIFICATION))
     : Math.max(32, boxSize)
   const belowHorizon = snapshot.sun.altitude < -0.833
-  const mobileTravel = (15.5 / 46 / Math.max(snapshot.sunAngularRadius, 0.0001)) * 100
+  const mobileTravel = (0.5 / Math.max(snapshot.sunAngularRadius, 0.0001)) * 100
   const eclipseRatio = Math.min(
     1,
     snapshot.obscuration / Math.max(snapshot.circumstances.peakObscuration, 0.0001),
@@ -55,7 +56,7 @@ export function EclipseOverlay({
   return (
     <div
       aria-hidden={!visible}
-      aria-label={`Position simulée du Soleil, éclipse occultée à ${Math.round(snapshot.obscuration * 100)} %`}
+      aria-label={`Position simulée du Soleil, éclipse occultée à ${formatObscuration(snapshot.obscuration)}`}
       className="sun-marker"
       data-visible={visible}
       style={{
@@ -120,7 +121,7 @@ export function EclipseOverlay({
         </span>
         <span className="sun-marker__mobile-line" />
         <span className="sun-marker__mobile-figures">
-          <strong>{Math.round(snapshot.obscuration * 100)} %</strong>
+          <strong>{formatObscuration(snapshot.obscuration)}</strong>
           <span>Du Soleil caché</span>
           <span className="sun-marker__mobile-clouds">
             <Cloud size={13} strokeWidth={1.6} />

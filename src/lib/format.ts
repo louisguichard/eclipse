@@ -100,6 +100,14 @@ export function formatPercent(value: number, digits = 0): string {
   }).format(value)
 }
 
+/** Avoid saying 0 % while a first, still sub-percent notch is already visible. */
+export function formatObscuration(value: number): string {
+  const safeValue = Math.max(0, Math.min(1, value))
+  if (safeValue === 0) return '0 %'
+  if (safeValue < 0.01) return '< 1 %'
+  return formatPercent(safeValue)
+}
+
 export function formatDegrees(value: number, digits = 1): string {
   return `${value.toFixed(digits).replace('.', ',')}°`
 }

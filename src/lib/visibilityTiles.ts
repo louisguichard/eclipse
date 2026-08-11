@@ -4,6 +4,11 @@ import type {
 } from '../types/visibility'
 
 export const WEB_MERCATOR_MAX_LATITUDE = 85.05112878
+export const WEB_MERCATOR_MAX_ZOOM = 30
+
+/** Overlay bounds only; the Google map UI keeps its native location-dependent range. */
+export const VISIBILITY_MIN_DISPLAY_ZOOM = 0
+export const VISIBILITY_MAX_DISPLAY_ZOOM = WEB_MERCATOR_MAX_ZOOM
 
 export type TileCoordinate = {
   x: number
@@ -12,6 +17,15 @@ export type TileCoordinate = {
 
 export type VisibilityMapTypeConstructors = {
   Size: typeof google.maps.Size
+}
+
+export type VisibilityTileRequest = {
+  url: string
+  sourceCoordinate: TileCoordinate
+  sourceZoom: number
+  scale: number
+  left: number
+  top: number
 }
 
 export type VisibilityImageMapTypeResult =
@@ -27,7 +41,7 @@ export type VisibilityImageMapTypeResult =
     }
 
 function tileCount(zoom: number): number {
-  if (!Number.isInteger(zoom) || zoom < 0 || zoom > 30) {
+  if (!Number.isInteger(zoom) || zoom < 0 || zoom > WEB_MERCATOR_MAX_ZOOM) {
     throw new RangeError(`Invalid Web Mercator zoom: ${zoom}`)
   }
   return 2 ** zoom
@@ -120,8 +134,9 @@ export function pointInGeographicBounds(
 
 /**
  * Returns ready datasets in catalogue order (fine to coarse) that can paint
- * either the observation point or the visible map. Passing a zoom avoids
- * mounting a pyramid while Google cannot request any of its levels.
+ * either the observation point or the visible map. Outside a pyramid's native
+ * range, its nearest published level remains mounted through the shared map
+ * zoom range.
  */
 export function visibilityDatasetsForView(
   manifests: readonly VisibilityDatasetManifest[],
@@ -133,7 +148,10 @@ export function visibilityDatasetsForView(
     if (visibilityManifestIssue(manifest) || !manifest.tiles) return false
     if (
       zoom !== undefined
-      && (zoom < manifest.tiles.minZoom || zoom > manifest.tiles.maxZoom)
+      && (
+        zoom < Math.min(manifest.tiles.minZoom, VISIBILITY_MIN_DISPLAY_ZOOM)
+        || zoom > Math.max(manifest.tiles.maxZoom, VISIBILITY_MAX_DISPLAY_ZOOM)
+      )
     ) {
       return false
     }
@@ -219,6 +237,121 @@ export function buildVisibilityTileUrl(
     .replaceAll('{y}', String(normalizedCoordinate.y))
 }
 
+function longitudeToTileX(longitude: number, zoom: number): number {
+  const count = tileCount(zoom)
+  const clamped = Math.max(-180, Math.min(180, longitude))
+  return Math.max(
+    0,
+    Math.min(count - 1, Math.floor(((clamped + 180) / 360) * count)),
+  )
+}
+
+function coverageTileXRanges(
+  coverage: GeographicBounds,
+  zoom: number,
+): Array<[number, number]> {
+  return longitudeRanges(coverage).map(([west, east]) => [
+    longitudeToTileX(west, zoom),
+    longitudeToTileX(east, zoom),
+  ])
+}
+
+/**
+ * Resolves a displayed Google tile to one or more published source tiles. At
+ * native zooms this is a one-to-one lookup. Overzoom selects one precise child
+ * quadrant of the last level; underzoom builds a small mosaic from the first
+ * level so the overlay also remains present at world scale.
+ */
+export function resolveVisibilityTileRequests(
+  manifest: VisibilityDatasetManifest,
+  coordinate: TileCoordinate,
+  zoom: number,
+): VisibilityTileRequest[] {
+  if (visibilityManifestIssue(manifest) || !manifest.tiles) return []
+  const minimumDisplayZoom = Math.min(
+    manifest.tiles.minZoom,
+    VISIBILITY_MIN_DISPLAY_ZOOM,
+  )
+  const maximumDisplayZoom = Math.max(
+    manifest.tiles.maxZoom,
+    VISIBILITY_MAX_DISPLAY_ZOOM,
+  )
+  if (zoom < minimumDisplayZoom || zoom > maximumDisplayZoom) return []
+  if (!Number.isInteger(coordinate.x) || !isValidTileY(coordinate.y, zoom)) return []
+
+  const displayedCoordinate = {
+    x: normalizeTileX(coordinate.x, zoom),
+    y: coordinate.y,
+  }
+  if (!tileIntersectsBounds(displayedCoordinate, zoom, manifest.coverage)) return []
+
+  const sourceZoom = Math.max(
+    manifest.tiles.minZoom,
+    Math.min(zoom, manifest.tiles.maxZoom),
+  )
+  if (sourceZoom <= zoom) {
+    const scale = 2 ** (zoom - sourceZoom)
+    const sourceCoordinate = {
+      x: Math.floor(displayedCoordinate.x / scale),
+      y: Math.floor(displayedCoordinate.y / scale),
+    }
+    const url = buildVisibilityTileUrl(manifest, sourceCoordinate, sourceZoom)
+    if (!url) return []
+
+    return [{
+      url,
+      sourceCoordinate,
+      sourceZoom,
+      scale,
+      left: -(displayedCoordinate.x % scale) * manifest.tiles.tileSize,
+      top: -(displayedCoordinate.y % scale) * manifest.tiles.tileSize,
+    }]
+  }
+
+  const sourceTilesPerAxis = 2 ** (sourceZoom - zoom)
+  const sourceDisplaySize = manifest.tiles.tileSize / sourceTilesPerAxis
+  const displayedSourceWest = displayedCoordinate.x * sourceTilesPerAxis
+  const displayedSourceNorth = displayedCoordinate.y * sourceTilesPerAxis
+  const displayedSourceEast = displayedSourceWest + sourceTilesPerAxis - 1
+  const displayedSourceSouth = displayedSourceNorth + sourceTilesPerAxis - 1
+  const coverageNorth = latLngToTileCoordinate(
+    manifest.coverage.north,
+    0,
+    sourceZoom,
+  ).y
+  const coverageSouth = latLngToTileCoordinate(
+    manifest.coverage.south,
+    0,
+    sourceZoom,
+  ).y
+  const requests: VisibilityTileRequest[] = []
+  const firstY = Math.max(displayedSourceNorth, coverageNorth)
+  const lastY = Math.min(displayedSourceSouth, coverageSouth)
+  for (const [coverageWest, coverageEast] of coverageTileXRanges(
+    manifest.coverage,
+    sourceZoom,
+  )) {
+    const firstX = Math.max(displayedSourceWest, coverageWest)
+    const lastX = Math.min(displayedSourceEast, coverageEast)
+    for (let y = firstY; y <= lastY; y += 1) {
+      for (let x = firstX; x <= lastX; x += 1) {
+        const sourceCoordinate = { x, y }
+        const url = buildVisibilityTileUrl(manifest, sourceCoordinate, sourceZoom)
+        if (!url) continue
+        requests.push({
+          url,
+          sourceCoordinate,
+          sourceZoom,
+          scale: 1 / sourceTilesPerAxis,
+          left: (x - displayedSourceWest) * sourceDisplaySize,
+          top: (y - displayedSourceNorth) * sourceDisplaySize,
+        })
+      }
+    }
+  }
+  return requests
+}
+
 export function createVisibilityImageMapType(
   constructors: VisibilityMapTypeConstructors,
   manifest: VisibilityDatasetManifest,
@@ -235,11 +368,19 @@ export function createVisibilityImageMapType(
 
   const safeOpacity = Math.max(0, Math.min(1, opacity))
   const tileSize = manifest.tiles.tileSize
+  const minimumDisplayZoom = Math.min(
+    manifest.tiles.minZoom,
+    VISIBILITY_MIN_DISPLAY_ZOOM,
+  )
+  const maximumDisplayZoom = Math.max(
+    manifest.tiles.maxZoom,
+    VISIBILITY_MAX_DISPLAY_ZOOM,
+  )
   const mapType: google.maps.MapType = {
     alt: manifest.disclaimer,
     name: manifest.label,
-    minZoom: manifest.tiles.minZoom,
-    maxZoom: manifest.tiles.maxZoom,
+    minZoom: minimumDisplayZoom,
+    maxZoom: maximumDisplayZoom,
     projection: null,
     radius: 6_378_137,
     tileSize: new constructors.Size(tileSize, tileSize),
@@ -247,22 +388,35 @@ export function createVisibilityImageMapType(
       const tile = ownerDocument.createElement('div')
       tile.style.width = `${tileSize}px`
       tile.style.height = `${tileSize}px`
+      tile.style.position = 'relative'
       tile.style.overflow = 'hidden'
       tile.style.opacity = String(safeOpacity)
 
-      const url = buildVisibilityTileUrl(manifest, coordinate, zoom)
-      if (!url) return tile
-
-      const image = ownerDocument.createElement('img')
-      image.alt = ''
-      image.ariaHidden = 'true'
-      image.decoding = 'async'
-      image.draggable = false
-      image.width = tileSize
-      image.height = tileSize
-      image.src = url
-      image.addEventListener('error', () => image.remove(), { once: true })
-      tile.append(image)
+      const requests = resolveVisibilityTileRequests(manifest, coordinate, zoom)
+      for (const request of requests) {
+        const image = ownerDocument.createElement('img')
+        image.alt = ''
+        image.ariaHidden = 'true'
+        image.decoding = 'async'
+        image.draggable = false
+        image.width = tileSize
+        image.height = tileSize
+        image.style.position = 'absolute'
+        image.style.top = `${request.top}px`
+        image.style.left = `${request.left}px`
+        image.style.width = `${tileSize}px`
+        image.style.height = `${tileSize}px`
+        image.style.maxWidth = 'none'
+        image.style.maxHeight = 'none'
+        image.style.transformOrigin = 'top left'
+        if (request.scale !== 1) {
+          if (request.scale > 1) image.style.imageRendering = 'pixelated'
+          image.style.transform = `scale(${request.scale})`
+        }
+        image.addEventListener('error', () => image.remove(), { once: true })
+        image.src = request.url
+        tile.append(image)
+      }
       return tile
     },
     releaseTile: (tile) => {

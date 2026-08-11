@@ -419,14 +419,10 @@ export function MapView({
     // are visible, so location changes must move the map even when that flag is
     // false (the default mobile tab is Street View).
     map.panTo({ lat: observer.lat, lng: observer.lng })
-    const datasetMaxZoom = preferredVisibilityDataset?.tiles?.maxZoom
-    if (datasetMaxZoom !== undefined && (map.getZoom() ?? datasetMaxZoom) > datasetMaxZoom) {
-      map.setZoom(datasetMaxZoom)
-    }
     if (observer.source === 'search' || observer.source === 'geolocation') {
-      map.setZoom(Math.min(datasetMaxZoom ?? 16, Math.max(map.getZoom() ?? 14, 16)))
+      map.setZoom(Math.max(map.getZoom() ?? 14, 16))
     }
-  }, [observer.lat, observer.lng, observer.source, preferredVisibilityDataset, status])
+  }, [observer.lat, observer.lng, observer.source, status])
 
   useEffect(() => {
     const map = mapRef.current

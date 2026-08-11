@@ -116,6 +116,6 @@ describe('useObserverLocation URL synchronization', () => {
       })
     })
 
-    expect(result.current.minute).toBe(-53)
+    expect(result.current.minute).toBeCloseTo(-53.1423, 4)
   })
 })

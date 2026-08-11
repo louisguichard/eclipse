@@ -6,12 +6,14 @@ import { useWeather } from './useWeather'
 import type { WeatherDayForecast, WeatherSnapshot } from '../types/weather'
 
 const weatherMocks = vi.hoisted(() => ({
+  fetchTimeZone: vi.fn(),
   fetchWeatherDay: vi.fn(),
   weatherAtTime: vi.fn(),
 }))
 
 vi.mock('../lib/weather', async (importOriginal) => ({
   ...await importOriginal<typeof import('../lib/weather')>(),
+  fetchTimeZone: weatherMocks.fetchTimeZone,
   fetchWeatherDay: weatherMocks.fetchWeatherDay,
   weatherAtTime: weatherMocks.weatherAtTime,
 }))
@@ -52,6 +54,7 @@ function snapshotAt(date: Date): WeatherSnapshot {
 describe('useWeather', () => {
   beforeEach(() => {
     vi.useFakeTimers()
+    weatherMocks.fetchTimeZone.mockResolvedValue('Europe/Paris')
     weatherMocks.fetchWeatherDay.mockResolvedValue(DAY)
     weatherMocks.weatherAtTime.mockImplementation((_forecast: WeatherDayForecast, date: Date) => snapshotAt(date))
   })
@@ -112,6 +115,9 @@ describe('useWeather', () => {
     weatherMocks.fetchWeatherDay
       .mockResolvedValueOnce(DAY)
       .mockResolvedValueOnce(tokyoDay)
+    weatherMocks.fetchTimeZone
+      .mockResolvedValueOnce('Europe/Paris')
+      .mockResolvedValueOnce('Asia/Tokyo')
     const { result, rerender } = renderHook(
       ({ lat, lng }) => useWeather({ lat, lng }, new Date('2026-08-12T18:17:00Z')),
       { initialProps: { lat: 48.8566, lng: 2.3522 } },
@@ -130,5 +136,22 @@ describe('useWeather', () => {
       await vi.advanceTimersByTimeAsync(251)
     })
     expect(result.current.timeZone).toBe('Asia/Tokyo')
+  })
+
+  it('keeps local clock formatting available when the dated forecast is unavailable', async () => {
+    weatherMocks.fetchWeatherDay.mockRejectedValue(
+      new Error('Date is out of allowed range'),
+    )
+    const { result } = renderHook(() => useWeather(
+      { lat: 48.8566, lng: 2.3522 },
+      new Date('2026-08-12T18:17:00Z'),
+    ))
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(251)
+    })
+
+    expect(result.current.timeZone).toBe('Europe/Paris')
+    expect(result.current.status).toBe('error')
   })
 })

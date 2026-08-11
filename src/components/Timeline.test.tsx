@@ -74,7 +74,7 @@ describe('Timeline', () => {
     expect(controller.togglePlayback).toHaveBeenCalledOnce()
   })
 
-  it('accepts fractional controlled values but rounds direct drag input', () => {
+  it('preserves fractional contact times and direct drag input', () => {
     const onMinuteChange = vi.fn()
     render(
       <Timeline
@@ -89,7 +89,7 @@ describe('Timeline', () => {
     const slider = screen.getByRole('slider', { name: 'Heure simulée' })
     expect(slider).toHaveValue('8.375')
     fireEvent.change(slider, { target: { value: '8.7' } })
-    expect(onMinuteChange).toHaveBeenLastCalledWith(9)
+    expect(onMinuteChange).toHaveBeenLastCalledWith(8.7)
   })
 
   it('stops playback as soon as the desktop slider is grabbed', () => {

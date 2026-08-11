@@ -218,4 +218,4 @@ export const VISIBILITY_DATASETS = [
 ] as const satisfies readonly VisibilityDatasetManifest[]
 
 /** The visibility layer is the purpose of the map, so it remains prominent. */
-export const VISIBILITY_LAYER_OPACITY = 0.92
+export const VISIBILITY_LAYER_OPACITY = 0.84
