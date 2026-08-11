@@ -1,8 +1,9 @@
 // @vitest-environment jsdom
 
-import { describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { VisibilityDatasetManifest } from '../types/visibility'
 import {
+  MIN_VISIBILITY_FOOTPRINT_PIXELS,
   VISIBILITY_MAX_DISPLAY_ZOOM,
   VISIBILITY_MIN_DISPLAY_ZOOM,
   buildVisibilityTileUrl,
@@ -20,6 +21,27 @@ import {
   visibilityDatasetsForView,
   visibilityManifestIssue,
 } from './visibilityTiles'
+
+const drawImage = vi.fn()
+const fillRect = vi.fn()
+const canvasContext = {
+  drawImage,
+  fillRect,
+  fillStyle: '',
+  imageSmoothingEnabled: true,
+}
+
+beforeEach(() => {
+  drawImage.mockReset()
+  fillRect.mockReset()
+  canvasContext.fillStyle = ''
+  canvasContext.imageSmoothingEnabled = true
+  vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(
+    canvasContext as unknown as CanvasRenderingContext2D,
+  )
+})
+
+afterEach(() => vi.restoreAllMocks())
 
 const READY_MANIFEST: VisibilityDatasetManifest = {
   id: 'paris-test',
@@ -364,8 +386,23 @@ describe('ImageMapType factory', () => {
       document,
     ) as HTMLDivElement
     const image = tile.querySelector('img')
+    const canvas = tile.querySelector('canvas')
     expect(tile.style.opacity).toBe('1')
+    expect(canvas?.width).toBe(256)
+    expect(canvas?.height).toBe(256)
     expect(image?.src).toContain('/14/8299/5636.png')
+    image?.dispatchEvent(new Event('load'))
+    expect(drawImage).toHaveBeenCalledWith(
+      image,
+      0,
+      0,
+      256,
+      256,
+      0,
+      0,
+      256,
+      256,
+    )
   })
 
   it('crops and scales the final source level instead of dropping closer tiles', () => {
@@ -392,14 +429,65 @@ describe('ImageMapType factory', () => {
       document,
     ) as HTMLDivElement
     const image = tile.querySelector('img')
+    const canvas = tile.querySelector('canvas')
 
     expect(image?.src).toContain('/15/16598/11272.png')
-    expect(image?.style.left).toBe('-256px')
-    expect(image?.style.top).toBe('-256px')
-    expect(image?.style.transform).toBe('scale(2)')
-    expect(image?.style.transformOrigin).toBe('top left')
-    expect(image?.style.imageRendering).toBe('pixelated')
-    expect(image?.style.maxWidth).toBe('none')
+    expect(image?.style.display).toBe('none')
+    expect(canvas?.style.width).toBe('256px')
+    image?.dispatchEvent(new Event('load'))
+    expect(drawImage).toHaveBeenCalledWith(
+      image,
+      128,
+      128,
+      128,
+      128,
+      0,
+      0,
+      256,
+      256,
+    )
+    expect(fillRect).not.toHaveBeenCalled()
+  })
+
+  it('renders extreme overzoom into a fixed canvas without huge CSS transforms', () => {
+    class FakeSize {
+      width: number
+      height: number
+
+      constructor(width: number, height: number) {
+        this.width = width
+        this.height = height
+      }
+    }
+    const result = createVisibilityImageMapType(
+      { Size: FakeSize as unknown as typeof google.maps.Size },
+      COARSE_MANIFEST,
+      0.84,
+    )
+    if (result.status !== 'ready') throw new Error('Expected a ready map type')
+
+    const displayedCoordinate = latLngToTileCoordinate(
+      48.86,
+      2.36,
+      VISIBILITY_MAX_DISPLAY_ZOOM,
+    )
+    const tile = result.mapType.getTile(
+      displayedCoordinate as google.maps.Point,
+      VISIBILITY_MAX_DISPLAY_ZOOM,
+      document,
+    ) as HTMLDivElement
+    const image = tile.querySelector('img')
+    const canvas = tile.querySelector('canvas')
+
+    expect(canvas?.width).toBe(256)
+    expect(canvas?.style.inset).toBe('0px')
+    expect(image?.style.display).toBe('none')
+    expect(image?.style.transform).toBe('')
+    image?.dispatchEvent(new Event('load'))
+    const call = drawImage.mock.calls.at(-1)
+    expect(call?.[3]).toBe(1)
+    expect(call?.[4]).toBe(1)
+    expect(call?.slice(5)).toEqual([0, 0, 256, 256])
   })
 
   it('composes first-level source tiles instead of dropping wider map tiles', () => {
@@ -430,8 +518,10 @@ describe('ImageMapType factory', () => {
       document,
     ) as HTMLDivElement
     const images = [...tile.querySelectorAll('img')]
+    const canvas = tile.querySelector('canvas')
 
     expect(tile.style.opacity).toBe('0.84')
+    expect(canvas?.width).toBe(256)
     expect(images).toHaveLength(9)
     expect(images.map(({ src }) => src)).toEqual([
       'https://tiles.example/2026.08.12%2Bsurface/10/517/351.png',
@@ -444,18 +534,15 @@ describe('ImageMapType factory', () => {
       'https://tiles.example/2026.08.12%2Bsurface/10/518/353.png',
       'https://tiles.example/2026.08.12%2Bsurface/10/519/353.png',
     ])
-    expect(images.map(({ style }) => [style.left, style.top, style.transform])).toEqual([
-      ['129.25px', '87.75px', 'scale(0.0009765625)'],
-      ['129.5px', '87.75px', 'scale(0.0009765625)'],
-      ['129.75px', '87.75px', 'scale(0.0009765625)'],
-      ['129.25px', '88px', 'scale(0.0009765625)'],
-      ['129.5px', '88px', 'scale(0.0009765625)'],
-      ['129.75px', '88px', 'scale(0.0009765625)'],
-      ['129.25px', '88.25px', 'scale(0.0009765625)'],
-      ['129.5px', '88.25px', 'scale(0.0009765625)'],
-      ['129.75px', '88.25px', 'scale(0.0009765625)'],
-    ])
-    expect(images.every(({ style }) => style.imageRendering === '')).toBe(true)
+    expect(images.every(({ style }) => style.display === 'none')).toBe(true)
+    for (const image of images) image.dispatchEvent(new Event('load'))
+    expect(drawImage).toHaveBeenCalledTimes(9)
+    expect(fillRect).toHaveBeenCalledTimes(9)
+    expect(fillRect.mock.calls.every(([, , width, height]) =>
+      width === MIN_VISIBILITY_FOOTPRINT_PIXELS
+      && height === MIN_VISIBILITY_FOOTPRINT_PIXELS,
+    )).toBe(true)
+    expect(canvasContext.fillStyle).toBe('#ffc933')
   })
 
   it('turns a missing CDN tile into a transparent tile without a broken image', () => {
@@ -484,6 +571,47 @@ describe('ImageMapType factory', () => {
     expect(image).not.toBeNull()
     image?.dispatchEvent(new Event('error'))
     expect(tile.querySelector('img')).toBeNull()
+    expect(tile.querySelector('canvas')).not.toBeNull()
+    expect(tile.childElementCount).toBe(1)
+    expect(drawImage).not.toHaveBeenCalled()
+    expect(fillRect).not.toHaveBeenCalled()
+  })
+
+  it('does not paint a tile whose image finishes loading after release', () => {
+    class FakeSize {
+      width: number
+      height: number
+
+      constructor(width: number, height: number) {
+        this.width = width
+        this.height = height
+      }
+    }
+    const result = createVisibilityImageMapType(
+      { Size: FakeSize as unknown as typeof google.maps.Size },
+      READY_MANIFEST,
+      0.84,
+    )
+    if (result.status !== 'ready') throw new Error('Expected a ready map type')
+
+    const displayedCoordinate = latLngToTileCoordinate(
+      48.8566,
+      2.3522,
+      VISIBILITY_MIN_DISPLAY_ZOOM,
+    )
+    const tile = result.mapType.getTile(
+      displayedCoordinate as google.maps.Point,
+      VISIBILITY_MIN_DISPLAY_ZOOM,
+      document,
+    ) as HTMLDivElement
+    const delayedImage = tile.querySelector('img')
+
+    expect(delayedImage).not.toBeNull()
+    result.mapType.releaseTile(tile)
+    expect(tile.childElementCount).toBe(0)
+    delayedImage?.dispatchEvent(new Event('load'))
+    expect(drawImage).not.toHaveBeenCalled()
+    expect(fillRect).not.toHaveBeenCalled()
     expect(tile.childElementCount).toBe(0)
   })
 

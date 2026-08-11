@@ -340,7 +340,10 @@ utile (zooms 0 à 30) : sous le premier zoom publié, elle compose uniquement le
 tuiles source qui recoupent l’emprise ; au-delà du dernier, elle agrandit la
 dernière tuile et en recadre le quadrant correspondant. Le jaune reste ainsi
 aligné lors d’un zoom avant comme arrière, sans prétendre ajouter du détail
-LiDAR absent de la pyramide.
+LiDAR absent de la pyramide. Le rendu se fait dans un canvas de taille fixe :
+cela évite les transformations géantes au surzoom et, lorsqu’une tuile jaune
+non vide tomberait sous deux pixels au dézoom mondial, conserve un repère de
+présence indicatif de 2 × 2 px.
 
 Le modèle calcule toujours quatre classes, mais la carte n’en peint qu’une : le **dégagement probable**, en jaune. « Horizon sensible », « incertain » et « masquage probable » restent transparents, pour que la carte réponde à une seule question au lieu d’imposer une légende à décoder. Les zones jaunes sont par ailleurs **élargies au rendu** — une rue dégagée de 10 m serait invisible au zoom ville — donc leurs contours sont indicatifs et non métriques ; la classification enregistrée, elle, conserve son étendue exacte.
 

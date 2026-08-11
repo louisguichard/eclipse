@@ -10,6 +10,9 @@ export const WEB_MERCATOR_MAX_ZOOM = 30
 export const VISIBILITY_MIN_DISPLAY_ZOOM = 0
 export const VISIBILITY_MAX_DISPLAY_ZOOM = WEB_MERCATOR_MAX_ZOOM
 
+/** A geographic feature smaller than this becomes an indicative map dot. */
+export const MIN_VISIBILITY_FOOTPRINT_PIXELS = 2
+
 export type TileCoordinate = {
   x: number
   y: number
@@ -376,6 +379,9 @@ export function createVisibilityImageMapType(
     manifest.tiles.maxZoom,
     VISIBILITY_MAX_DISPLAY_ZOOM,
   )
+  const visibilityColor = manifest.legend.find(({ id }) => id === 'clear')?.color
+    ?? '#ffc933'
+  const releasedTiles = new WeakSet<Element>()
   const mapType: google.maps.MapType = {
     alt: manifest.disclaimer,
     name: manifest.label,
@@ -392,6 +398,21 @@ export function createVisibilityImageMapType(
       tile.style.overflow = 'hidden'
       tile.style.opacity = String(safeOpacity)
 
+      // A fixed-size canvas avoids both rendering failure modes of CSS image
+      // transforms: sub-pixel rasters at world zoom and multi-million-pixel
+      // offsets at close zoom. Drawing cross-origin images is allowed; the
+      // canvas may be tainted, but it is never read back.
+      const canvas = ownerDocument.createElement('canvas')
+      canvas.width = tileSize
+      canvas.height = tileSize
+      canvas.ariaHidden = 'true'
+      canvas.style.position = 'absolute'
+      canvas.style.inset = '0'
+      canvas.style.width = `${tileSize}px`
+      canvas.style.height = `${tileSize}px`
+      tile.append(canvas)
+      const context = canvas.getContext('2d')
+
       const requests = resolveVisibilityTileRequests(manifest, coordinate, zoom)
       for (const request of requests) {
         const image = ownerDocument.createElement('img')
@@ -401,17 +422,88 @@ export function createVisibilityImageMapType(
         image.draggable = false
         image.width = tileSize
         image.height = tileSize
-        image.style.position = 'absolute'
-        image.style.top = `${request.top}px`
-        image.style.left = `${request.left}px`
-        image.style.width = `${tileSize}px`
-        image.style.height = `${tileSize}px`
-        image.style.maxWidth = 'none'
-        image.style.maxHeight = 'none'
-        image.style.transformOrigin = 'top left'
-        if (request.scale !== 1) {
-          if (request.scale > 1) image.style.imageRendering = 'pixelated'
-          image.style.transform = `scale(${request.scale})`
+        if (context) {
+          image.style.display = 'none'
+          image.addEventListener('load', () => {
+            if (releasedTiles.has(tile)) return
+            if (request.scale >= 1) {
+              const exactSourceSize = tileSize / request.scale
+              const sourceSize = Math.max(1, exactSourceSize)
+              const sourceX = exactSourceSize < 1
+                ? Math.floor(-request.left / request.scale)
+                : -request.left / request.scale
+              const sourceY = exactSourceSize < 1
+                ? Math.floor(-request.top / request.scale)
+                : -request.top / request.scale
+              context.imageSmoothingEnabled = false
+              context.drawImage(
+                image,
+                sourceX,
+                sourceY,
+                sourceSize,
+                sourceSize,
+                0,
+                0,
+                tileSize,
+                tileSize,
+              )
+              return
+            }
+
+            const renderedSize = tileSize * request.scale
+            context.imageSmoothingEnabled = true
+            context.drawImage(
+              image,
+              0,
+              0,
+              tileSize,
+              tileSize,
+              request.left,
+              request.top,
+              renderedSize,
+              renderedSize,
+            )
+            if (renderedSize <= MIN_VISIBILITY_FOOTPRINT_PIXELS) {
+              const markerLeft = Math.max(0, Math.min(
+                tileSize - MIN_VISIBILITY_FOOTPRINT_PIXELS,
+                Math.round(
+                  request.left
+                  + renderedSize / 2
+                  - MIN_VISIBILITY_FOOTPRINT_PIXELS / 2,
+                ),
+              ))
+              const markerTop = Math.max(0, Math.min(
+                tileSize - MIN_VISIBILITY_FOOTPRINT_PIXELS,
+                Math.round(
+                  request.top
+                  + renderedSize / 2
+                  - MIN_VISIBILITY_FOOTPRINT_PIXELS / 2,
+                ),
+              ))
+              context.fillStyle = visibilityColor
+              context.fillRect(
+                markerLeft,
+                markerTop,
+                MIN_VISIBILITY_FOOTPRINT_PIXELS,
+                MIN_VISIBILITY_FOOTPRINT_PIXELS,
+              )
+            }
+          }, { once: true })
+        } else {
+          // Defensive fallback for environments without Canvas 2D. Normal
+          // browsers take the fixed-canvas path above.
+          image.style.position = 'absolute'
+          image.style.top = `${request.top}px`
+          image.style.left = `${request.left}px`
+          image.style.width = `${tileSize}px`
+          image.style.height = `${tileSize}px`
+          image.style.maxWidth = 'none'
+          image.style.maxHeight = 'none'
+          image.style.transformOrigin = 'top left'
+          if (request.scale !== 1) {
+            if (request.scale > 1) image.style.imageRendering = 'pixelated'
+            image.style.transform = `scale(${request.scale})`
+          }
         }
         image.addEventListener('error', () => image.remove(), { once: true })
         image.src = request.url
@@ -420,7 +512,9 @@ export function createVisibilityImageMapType(
       return tile
     },
     releaseTile: (tile) => {
-      tile?.replaceChildren()
+      if (!tile) return
+      releasedTiles.add(tile)
+      tile.replaceChildren()
     },
   }
 
