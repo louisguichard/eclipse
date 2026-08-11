@@ -5,6 +5,7 @@ import {
   clearWeatherCache,
   fetchTimeZone,
   fetchWeatherDay,
+  fetchWeatherForLocation,
   parseOpenMeteoResponse,
   WeatherForecastError,
   weatherAtTime,
@@ -78,6 +79,48 @@ describe('time zone lookup', () => {
     await expect(fetchTimeZone(location, { fetcher })).resolves.toBe('Europe/Paris')
     await expect(fetchTimeZone(location, { fetcher })).resolves.toBe('Europe/Paris')
     expect(fetcher).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('combined weather lookup', () => {
+  it('returns the forecast, cloud cover, and IANA zone with one request', async () => {
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(
+      new Response(JSON.stringify(OPEN_METEO_RESPONSE)),
+    )
+
+    const result = await fetchWeatherForLocation(
+      { lat: 48.8566, lng: 2.3522 },
+      new Date('2026-08-12T18:17:00Z'),
+      { fetcher, now: new Date('2026-08-11T12:00:00Z') },
+    )
+
+    expect(fetcher).toHaveBeenCalledTimes(1)
+    expect(result.timeZone).toBe('Europe/Paris')
+    expect(result.forecastError).toBeNull()
+    expect(weatherAtTime(result.forecast!, new Date('2026-08-12T18:17:00Z'))?.cloudCover)
+      .toBe(0)
+  })
+
+  it('uses one metadata-only request when the dated forecast is out of range', async () => {
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(new Response(JSON.stringify({
+      timezone: 'Europe/Paris',
+      utc_offset_seconds: 7200,
+    })))
+
+    const result = await fetchWeatherForLocation(
+      { lat: 48.8566, lng: 2.3522 },
+      new Date('2026-08-12T18:17:00Z'),
+      { fetcher, now: new Date('2026-01-01T12:00:00Z') },
+    )
+    const url = new URL(String(fetcher.mock.calls[0][0]))
+
+    expect(fetcher).toHaveBeenCalledTimes(1)
+    expect(result.forecast).toBeNull()
+    expect(result.forecastError?.kind).toBe('unavailable')
+    expect(result.timeZone).toBe('Europe/Paris')
+    expect(url.searchParams.get('forecast_days')).toBe('1')
+    expect(url.searchParams.has('hourly')).toBe(false)
+    expect(url.searchParams.has('start_date')).toBe(false)
   })
 })
 

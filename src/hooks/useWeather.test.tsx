@@ -2,19 +2,18 @@
 
 import { act, cleanup, renderHook } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { WeatherForecastError } from '../lib/weather'
 import { useWeather } from './useWeather'
 import type { WeatherDayForecast, WeatherSnapshot } from '../types/weather'
 
 const weatherMocks = vi.hoisted(() => ({
-  fetchTimeZone: vi.fn(),
-  fetchWeatherDay: vi.fn(),
+  fetchWeatherForLocation: vi.fn(),
   weatherAtTime: vi.fn(),
 }))
 
 vi.mock('../lib/weather', async (importOriginal) => ({
   ...await importOriginal<typeof import('../lib/weather')>(),
-  fetchTimeZone: weatherMocks.fetchTimeZone,
-  fetchWeatherDay: weatherMocks.fetchWeatherDay,
+  fetchWeatherForLocation: weatherMocks.fetchWeatherForLocation,
   weatherAtTime: weatherMocks.weatherAtTime,
 }))
 
@@ -54,8 +53,12 @@ function snapshotAt(date: Date): WeatherSnapshot {
 describe('useWeather', () => {
   beforeEach(() => {
     vi.useFakeTimers()
-    weatherMocks.fetchTimeZone.mockResolvedValue('Europe/Paris')
-    weatherMocks.fetchWeatherDay.mockResolvedValue(DAY)
+    vi.setSystemTime(new Date('2026-08-11T12:00:00Z'))
+    weatherMocks.fetchWeatherForLocation.mockResolvedValue({
+      forecast: DAY,
+      timeZone: 'Europe/Paris',
+      forecastError: null,
+    })
     weatherMocks.weatherAtTime.mockImplementation((_forecast: WeatherDayForecast, date: Date) => snapshotAt(date))
   })
 
@@ -77,12 +80,12 @@ describe('useWeather', () => {
     })
     expect(result.current.status).toBe('ready')
     expect(result.current.timeZone).toBe('Europe/Paris')
-    expect(weatherMocks.fetchWeatherDay).toHaveBeenCalledTimes(1)
+    expect(weatherMocks.fetchWeatherForLocation).toHaveBeenCalledTimes(1)
 
     rerender({ selectedTime: new Date('2026-08-12T18:42:00Z') })
 
     expect(result.current.snapshot?.forecastTime.toISOString()).toBe('2026-08-12T18:42:00.000Z')
-    expect(weatherMocks.fetchWeatherDay).toHaveBeenCalledTimes(1)
+    expect(weatherMocks.fetchWeatherForLocation).toHaveBeenCalledTimes(1)
   })
 
   it('debounces and reloads when the rounded location changes', async () => {
@@ -96,8 +99,8 @@ describe('useWeather', () => {
       await vi.advanceTimersByTimeAsync(251)
     })
 
-    expect(weatherMocks.fetchWeatherDay).toHaveBeenCalledTimes(1)
-    expect(weatherMocks.fetchWeatherDay).toHaveBeenCalledWith(
+    expect(weatherMocks.fetchWeatherForLocation).toHaveBeenCalledTimes(1)
+    expect(weatherMocks.fetchWeatherForLocation).toHaveBeenCalledWith(
       { lat: 48.863, lng: 2.352 },
       expect.any(Date),
       expect.objectContaining({ signal: expect.any(AbortSignal) }),
@@ -112,12 +115,17 @@ describe('useWeather', () => {
       timezone: 'Asia/Tokyo',
       utcOffsetSeconds: 32_400,
     }
-    weatherMocks.fetchWeatherDay
-      .mockResolvedValueOnce(DAY)
-      .mockResolvedValueOnce(tokyoDay)
-    weatherMocks.fetchTimeZone
-      .mockResolvedValueOnce('Europe/Paris')
-      .mockResolvedValueOnce('Asia/Tokyo')
+    weatherMocks.fetchWeatherForLocation
+      .mockResolvedValueOnce({
+        forecast: DAY,
+        timeZone: 'Europe/Paris',
+        forecastError: null,
+      })
+      .mockResolvedValueOnce({
+        forecast: tokyoDay,
+        timeZone: 'Asia/Tokyo',
+        forecastError: null,
+      })
     const { result, rerender } = renderHook(
       ({ lat, lng }) => useWeather({ lat, lng }, new Date('2026-08-12T18:17:00Z')),
       { initialProps: { lat: 48.8566, lng: 2.3522 } },
@@ -139,9 +147,14 @@ describe('useWeather', () => {
   })
 
   it('keeps local clock formatting available when the dated forecast is unavailable', async () => {
-    weatherMocks.fetchWeatherDay.mockRejectedValue(
-      new Error('Date is out of allowed range'),
-    )
+    weatherMocks.fetchWeatherForLocation.mockResolvedValue({
+      forecast: null,
+      timeZone: 'Europe/Paris',
+      forecastError: new WeatherForecastError(
+        'unavailable',
+        'Date is out of allowed range',
+      ),
+    })
     const { result } = renderHook(() => useWeather(
       { lat: 48.8566, lng: 2.3522 },
       new Date('2026-08-12T18:17:00Z'),
@@ -152,6 +165,6 @@ describe('useWeather', () => {
     })
 
     expect(result.current.timeZone).toBe('Europe/Paris')
-    expect(result.current.status).toBe('error')
+    expect(result.current.status).toBe('unavailable')
   })
 })

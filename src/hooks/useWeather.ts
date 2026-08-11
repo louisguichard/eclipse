@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { WEATHER } from '../config/weather'
-import { fetchTimeZone, fetchWeatherDay, WeatherForecastError, weatherAtTime } from '../lib/weather'
+import { fetchWeatherForLocation, WeatherForecastError, weatherAtTime } from '../lib/weather'
 import type { LatLng } from '../types'
 import type { WeatherDayForecast, WeatherResult, WeatherStatus } from '../types/weather'
 
@@ -29,23 +29,25 @@ export function useWeather(location: LatLng, selectedTime: Date): WeatherResult 
     const controller = new AbortController()
     setStatus('idle')
     setError(null)
-    void fetchTimeZone(
-      { lat: Number(roundedLat), lng: Number(roundedLng) },
-      { signal: controller.signal },
-    ).then((timeZone) => {
-      if (!controller.signal.aborted) setTimeZoneState({ key: coordinateKey, value: timeZone })
-    }).catch(() => {
-      // Forecast loading has its own visible status. A zone lookup failure is
-      // deliberately quiet; successful forecast metadata remains a fallback.
-    })
     const timeout = window.setTimeout(() => {
       setStatus('loading')
-      fetchWeatherDay(
+      fetchWeatherForLocation(
         { lat: Number(roundedLat), lng: Number(roundedLng) },
         forecastDate,
         { signal: controller.signal },
-      ).then((nextForecast) => {
+      ).then(({ forecast: nextForecast, timeZone, forecastError }) => {
         if (controller.signal.aborted) return
+        setTimeZoneState({ key: coordinateKey, value: timeZone })
+        if (!nextForecast) {
+          if (forecastError?.kind === 'unavailable') {
+            setStatus('unavailable')
+            setError('Prévision pas encore disponible')
+            return
+          }
+          setStatus('error')
+          setError('Météo indisponible')
+          return
+        }
         setForecastState({ key: requestKey, forecast: nextForecast })
         setStatus('ready')
       }).catch((requestError: unknown) => {

@@ -16,6 +16,10 @@ type FetchWeatherOptions = {
 
 type FetchTimeZoneOptions = FetchWeatherOptions
 
+type FetchWeatherForLocationOptions = FetchWeatherOptions & {
+  now?: Date
+}
+
 type CacheEntry = {
   expiresAt: number
   forecast: WeatherDayForecast
@@ -37,6 +41,8 @@ type OpenMeteoResponse = {
 
 const weatherCache = new Map<string, CacheEntry>()
 const timeZoneCache = new Map<string, TimeZoneCacheEntry>()
+const SAFE_FORECAST_FUTURE_DAYS = 14
+const SAFE_FORECAST_PAST_DAYS = 90
 
 export class WeatherForecastError extends Error {
   readonly kind: WeatherErrorKind
@@ -50,6 +56,24 @@ export class WeatherForecastError extends Error {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null
+}
+
+function readTimeZone(value: unknown): string {
+  if (typeof value !== 'string') {
+    throw new WeatherForecastError(
+      'invalid-response',
+      'La réponse ne contient pas de fuseau horaire valide.',
+    )
+  }
+  try {
+    new Intl.DateTimeFormat('fr-FR', { timeZone: value }).format(0)
+  } catch {
+    throw new WeatherForecastError(
+      'invalid-response',
+      'La réponse contient un fuseau horaire inconnu.',
+    )
+  }
+  return value
 }
 
 function isNullableNumberArray(value: unknown): value is Array<number | null> {
@@ -94,17 +118,17 @@ export function parseOpenMeteoResponse(value: unknown, fetchedAt = new Date()): 
   if (
     typeof response.latitude !== 'number'
     || typeof response.longitude !== 'number'
-    || typeof response.timezone !== 'string'
     || typeof response.utc_offset_seconds !== 'number'
   ) {
     throw new WeatherForecastError('invalid-response', 'La réponse météo ne contient pas les métadonnées attendues.')
   }
+  const timeZone = readTimeZone(response.timezone)
 
   return {
     latitude: response.latitude,
     longitude: response.longitude,
     elevation: typeof response.elevation === 'number' ? response.elevation : null,
-    timezone: response.timezone,
+    timezone: timeZone,
     utcOffsetSeconds: response.utc_offset_seconds,
     fetchedAt,
     hourly: readHourlyData(response.hourly),
@@ -173,6 +197,46 @@ function cacheKey(location: LatLng, date: Date): string {
   return `${normalized.lat},${normalized.lng}:${utcDateKey(date)}`
 }
 
+function timeZoneCacheKey(location: LatLng): string {
+  const normalized = normalizedLocation(location)
+  return `${normalized.lat},${normalized.lng}`
+}
+
+function cacheTimeZone(location: LatLng, timeZone: string): void {
+  timeZoneCache.set(timeZoneCacheKey(location), {
+    expiresAt: Date.now() + WEATHER.timeZoneCacheDurationMilliseconds,
+    timeZone,
+  })
+}
+
+function cachedTimeZone(location: LatLng): string | null {
+  const cached = timeZoneCache.get(timeZoneCacheKey(location))
+  return cached && cached.expiresAt > Date.now() ? cached.timeZone : null
+}
+
+function utcDayNumber(date: Date): number | null {
+  if (!Number.isFinite(date.getTime())) return null
+  return Math.floor(Date.UTC(
+    date.getUTCFullYear(),
+    date.getUTCMonth(),
+    date.getUTCDate(),
+  ) / 86_400_000)
+}
+
+/**
+ * Avoids a doomed dated request when the eclipse is outside Open-Meteo's
+ * forecast/archive window. The one request can then resolve the local IANA
+ * zone without asking the API for hourly data it cannot provide.
+ */
+export function isWeatherForecastDateRequestable(date: Date, now = new Date()): boolean {
+  const dateDay = utcDayNumber(date)
+  const nowDay = utcDayNumber(now)
+  if (dateDay === null || nowDay === null) return false
+  const distanceDays = dateDay - nowDay
+  return distanceDays >= -SAFE_FORECAST_PAST_DAYS
+    && distanceDays <= SAFE_FORECAST_FUTURE_DAYS
+}
+
 function errorFromStatus(status: number, reason?: string): WeatherForecastError {
   if (status === 429) {
     return new WeatherForecastError('rate-limit', 'Le service météo reçoit trop de demandes.')
@@ -218,6 +282,7 @@ export async function fetchWeatherDay(
       expiresAt: Date.now() + WEATHER.cacheDurationMilliseconds,
       forecast,
     })
+    cacheTimeZone(location, forecast.timezone)
     return forecast
   } catch (error) {
     if (error instanceof WeatherForecastError) throw error
@@ -238,9 +303,8 @@ export async function fetchTimeZone(
   options: FetchTimeZoneOptions = {},
 ): Promise<string> {
   const normalized = normalizedLocation(location)
-  const key = `${normalized.lat},${normalized.lng}`
-  const cached = timeZoneCache.get(key)
-  if (cached && cached.expiresAt > Date.now()) return cached.timeZone
+  const cached = cachedTimeZone(normalized)
+  if (cached) return cached
 
   const controller = new AbortController()
   const abort = () => controller.abort()
@@ -255,26 +319,15 @@ export async function fetchTimeZone(
     if (!response.ok) throw errorFromStatus(response.status)
 
     const body: unknown = await response.json()
-    if (!isRecord(body) || typeof body.timezone !== 'string') {
+    if (!isRecord(body)) {
       throw new WeatherForecastError(
         'invalid-response',
         'La réponse ne contient pas de fuseau horaire valide.',
       )
     }
-    try {
-      new Intl.DateTimeFormat('fr-FR', { timeZone: body.timezone }).format(0)
-    } catch {
-      throw new WeatherForecastError(
-        'invalid-response',
-        'La réponse contient un fuseau horaire inconnu.',
-      )
-    }
-
-    timeZoneCache.set(key, {
-      expiresAt: Date.now() + WEATHER.timeZoneCacheDurationMilliseconds,
-      timeZone: body.timezone,
-    })
-    return body.timezone
+    const timeZone = readTimeZone(body.timezone)
+    cacheTimeZone(normalized, timeZone)
+    return timeZone
   } catch (error) {
     if (error instanceof WeatherForecastError) throw error
     if (controller.signal.aborted) {
@@ -288,6 +341,47 @@ export async function fetchTimeZone(
   } finally {
     globalThis.clearTimeout(timeout)
     options.signal?.removeEventListener('abort', abort)
+  }
+}
+
+export type WeatherLocationForecast = {
+  forecast: WeatherDayForecast | null
+  timeZone: string
+  forecastError: WeatherForecastError | null
+}
+
+/**
+ * Resolves weather and the local clock with at most one network request.
+ * A dated forecast already contains its IANA zone. Outside the safe forecast
+ * window, a metadata-only request preserves local time formatting while the
+ * UI honestly reports that the forecast is not yet available.
+ */
+export async function fetchWeatherForLocation(
+  location: LatLng,
+  date: Date,
+  options: FetchWeatherForLocationOptions = {},
+): Promise<WeatherLocationForecast> {
+  const { now = new Date(), ...fetchOptions } = options
+  if (!isWeatherForecastDateRequestable(date, now)) {
+    return {
+      forecast: null,
+      timeZone: await fetchTimeZone(location, fetchOptions),
+      forecastError: new WeatherForecastError(
+        'unavailable',
+        'La prévision n’est pas encore disponible.',
+      ),
+    }
+  }
+
+  try {
+    const forecast = await fetchWeatherDay(location, date, fetchOptions)
+    return { forecast, timeZone: forecast.timezone, forecastError: null }
+  } catch (error) {
+    const timeZone = cachedTimeZone(location)
+    if (timeZone && error instanceof WeatherForecastError) {
+      return { forecast: null, timeZone, forecastError: error }
+    }
+    throw error
   }
 }
 
