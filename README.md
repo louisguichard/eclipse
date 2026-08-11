@@ -4,7 +4,7 @@
 
 Une application web mobile et desktop pour savoir **où regarder dans le ciel le mercredi 12 août 2026** depuis n’importe quel point du monde. Street View occupe la scène principale ; la carte, la simulation astronomique, la météo horaire et la chronologie restent accessibles dans des cartes compactes. Hors de l’empreinte de l’éclipse, l’interface l’indique explicitement au lieu d’afficher un événement futur.
 
-Choisissez une adresse, cliquez sur la carte ou autorisez votre position : l’application cherche le panorama Street View le plus proche, calcule la position apparente du Soleil et de la Lune avec [`astronomy-engine`](https://github.com/cosinekitty/astronomy), puis oriente la caméra vers l’éclipse. Le viseur aide à juger visuellement si un bâtiment, un arbre ou le relief masque cette direction — sans prétendre analyser l’image.
+Choisissez une adresse, cliquez sur la carte ou autorisez votre position : l’application demande à Street View Embed une vue extérieure proche, calcule la position apparente du Soleil et de la Lune avec [`astronomy-engine`](https://github.com/cosinekitty/astronomy), puis oriente la caméra vers l’éclipse. Le viseur aide à juger visuellement si un bâtiment, un arbre ou le relief masque cette direction — sans prétendre analyser l’image.
 
 > **Sécurité solaire :** ne regardez jamais directement le Soleil sans lunettes d’éclipse conformes **ISO 12312-2**. Des lunettes de soleil, un téléphone ou un filtre photographique ordinaire ne protègent pas les yeux.
 
@@ -14,13 +14,14 @@ Choisissez une adresse, cliquez sur la carte ou autorisez votre position : l’a
 
 Fonctions principales :
 
-- recherche d’adresse avec `BasicPlaceAutocompleteElement` et résolution du lieu choisi avec `PlaceDetailsCompactElement`, sans Autocomplete legacy ;
+- recherche d’adresse gratuite avec la Géoplateforme française et CartoCiudad en Espagne, complétée par un index mondial GeoNames chargé à la demande ;
 - sélection par recherche, carte ou géolocalisation ;
 - rayon d’azimut solaire mis à jour minute par minute ;
-- panorama Street View réutilisé et automatiquement orienté vers le Soleil ;
+- panorama Street View Embed gratuit orienté vers le Soleil ;
+- carte vectorielle MapLibre fondée sur OpenStreetMap, sans Maps JavaScript ni facturation par vue ;
 - disque Soleil–Lune calculé à partir des positions et rayons angulaires apparents ;
 - chronologie mondiale 15 h 30–20 h UTC avec lecture accélérée, contacts locaux observables et coucher du Soleil ;
-- diagnostic honnête de visibilité, distance au panorama et niveau de confiance ;
+- diagnostic honnête de visibilité sans prétendre analyser l’image Street View ;
 - prévision horaire Open-Meteo pour le lieu et l’heure sélectionnés ;
 - couche de visibilité active par défaut : Paris à 2 m, puis les sept autres départements franciliens à 5 m depuis R2 ;
 - URL partageable (`lat`, `lng`, `time`) et mode diagnostic `?debug=true` ;
@@ -30,8 +31,8 @@ Fonctions principales :
 
 - Node.js 22.x (22.12 ou plus récent recommandé) ;
 - npm 10 ou plus récent ;
-- un projet Google Cloud avec facturation activée ;
-- une clé navigateur autorisée pour **Maps JavaScript API**, **Places UI Kit** et **Places API (New)**.
+- un projet Google Cloud avec **Maps Embed API** activée ;
+- une clé navigateur limitée à cette seule API et aux référents du site.
 
 Python 3.11 ou plus récent n’est nécessaire que pour **régénérer** la couche LiDAR ; les tuiles prêtes à servir sont déjà incluses dans `public/visibility/`.
 
@@ -51,13 +52,17 @@ cp .env.example .env.local
 Renseignez ensuite `.env.local` :
 
 ```dotenv
-VITE_GOOGLE_MAPS_API_KEY=votre_cle_navigateur_google_maps
-VITE_GOOGLE_MAP_ID=votre_map_id_optionnel
+VITE_GOOGLE_MAPS_EMBED_API_KEY=votre_cle_navigateur_maps_embed
+VITE_BASEMAP_STYLE_URL=https://tiles.openfreemap.org/styles/dark
+# Cible recommandée après publication de l’archive sur R2 :
+VITE_BASEMAP_PMTILES_URL=https://tiles.example.fr/basemap/eclipse-2026-v1.pmtiles
 VITE_VISIBILITY_TILE_BASE_URL=https://cdn.example.fr/eclipse/visibility
 VITE_CLOUDFLARE_WEB_ANALYTICS_TOKEN=votre_token_de_site_optionnel
 ```
 
-`VITE_GOOGLE_MAP_ID` est facultatif. Sans Map ID, l’application utilise le rendu cartographique standard. Avec un Map ID de type JavaScript, vous pouvez administrer un style dans Google Cloud sans changer le code.
+`VITE_GOOGLE_MAPS_EMBED_API_KEY` est la seule clé Google utilisée. Il n’existe aucun chargeur Maps JavaScript, Places ou Dynamic Street View, ni aucun interrupteur permettant de les réactiver. Pour ne pas casser immédiatement un ancien `.env.local`, `VITE_GOOGLE_MAPS_API_KEY` peut temporairement servir de clé Embed de compatibilité, mais il ne déclenche aucun appel Google JavaScript.
+
+La carte préfère `VITE_BASEMAP_PMTILES_URL` lorsqu’elle est définie. Sinon elle utilise `VITE_BASEMAP_STYLE_URL`, avec le style sombre public OpenFreeMap comme valeur par défaut. Ce service gratuit permet un démarrage immédiat, mais ne fournit pas de SLA : une archive PMTiles versionnée sur R2 reste la cible de production maîtrisée.
 
 `VITE_VISIBILITY_TILE_BASE_URL` est facultatif pour la seule couverture parisienne incluse sous `/visibility/paris-2026-max-v1/`. Il doit être défini pour charger les jeux régionaux publiés sur R2. Indiquez le dossier parent de tous les dossiers versionnés, sans ajouter un nom de version à la variable. Cette URL n’est pas un secret.
 
@@ -71,70 +76,47 @@ Lancez le développement :
 npm run dev
 ```
 
-Ouvrez [http://localhost:5173](http://localhost:5173). Sans clé, l’interface reste explicite et utilisable comme démonstration des calculs, mais les panneaux Google Maps, Places et Street View ne peuvent pas charger leurs données réelles.
+Ouvrez [http://localhost:5173](http://localhost:5173). La carte et la recherche fonctionnent sans clé Google ; seule la vue Street View exige la clé Embed.
 
-## Configuration Google Maps Platform
+## Carte et recherche sans API Google payante
 
-La documentation officielle évolue ; vérifiez les pages liées ci-dessous avant une mise en production.
+### Fond MapLibre et PMTiles
 
-### 1. Créer le projet et activer la facturation
+[`maplibre-gl`](https://maplibre.org/maplibre-gl-js/docs/) assure le rendu et les interactions dans le navigateur. Le mode auto-hébergé utilise [`pmtiles`](https://docs.protomaps.com/pmtiles/) et le thème sombre [`@protomaps/basemaps`](https://docs.protomaps.com/basemaps/). L’attribution OpenStreetMap reste visible dans la carte.
 
-1. Créez ou sélectionnez un projet dans la [console Google Cloud](https://console.cloud.google.com/projectcreate).
-2. Associez un compte de facturation. Maps JavaScript API exige une facturation active, même lorsque l’usage reste dans les plafonds gratuits applicables.
-3. Suivez le guide officiel [Set up the Maps JavaScript API](https://developers.google.com/maps/documentation/javascript/get-api-key).
+Pour basculer sur R2 :
 
-### 2. N’activer que les services nécessaires
+1. préparez une archive Protomaps sous `data/basemap/eclipse-2026.pmtiles` ;
+2. vérifiez sans réseau avec `npm run r2:basemap:plan` ;
+3. lancez `npm run r2:basemap:publish -- --dry-run` ;
+4. publiez avec `npm run r2:basemap:publish` ;
+5. placez l’URL publique versionnée dans `VITE_BASEMAP_PMTILES_URL` et redéployez.
 
-Dans **APIs & Services → Library**, activez :
+Le fichier est envoyé par défaut sous `basemap/eclipse-2026-v1.pmtiles` avec un cache immutable d’un an. Le script n’efface aucun objet. Le domaine R2 doit accepter `GET`, `HEAD` et les requêtes HTTP Range avec CORS.
 
-- **Maps JavaScript API** — carte et Street View dynamique ;
-- **Places UI Kit** — champ `BasicPlaceAutocompleteElement` qui produit les suggestions ;
-- **Places API (New)** — `place.fetchFields()`, l’appel qui convertit la suggestion choisie en coordonnées.
+### Recherche hybride
 
-Les deux dernières sont bien **deux produits distincts**, et l’oubli de la seconde produit une panne trompeuse : les suggestions s’affichent normalement, puis la sélection échoue avec `PLACES_GET_PLACE: PERMISSION_DENIED`. L’application détecte ce cas précis et affiche « Activez « Places API (New) » dans Google Cloud » plutôt qu’un message d’indisponibilité générique.
+Le champ attend plusieurs caractères, applique un délai avant les appels, annule les recherches obsolètes et met les résultats en cache :
 
-Il n’est pas nécessaire d’activer **Street View Static API** : ce projet utilise `StreetViewService` et `StreetViewPanorama`, fournis par Maps JavaScript API. N’activez pas Places API legacy.
+- France : géocodeur officiel de la [Géoplateforme](https://geoservices.ign.fr/documentation/services/services-geoplateforme/geocodage) ;
+- Espagne : service REST [CartoCiudad](https://www.cartociudad.es/) ;
+- autres pays : index statique GeoNames chargé uniquement lors de la première recherche.
 
-Consultez [Get Started with Places UI Kit](https://developers.google.com/maps/documentation/javascript/places-ui-kit/get-started) et [Basic Place Autocomplete Element](https://developers.google.com/maps/documentation/javascript/places-ui-kit/basic-autocomplete).
+L’index mondial permet de chercher des villes sans requête par frappe, mais ne couvre pas chaque adresse postale hors France et Espagne. Le clic sur la carte reste le repli universel. Le Nominatim public n’est volontairement pas utilisé : sa politique interdit l’autocomplétion cliente et impose une limite globale trop faible pour ce site.
 
-> **Stade de lancement :** au 9 août 2026, Google classe Places UI Kit comme **Experimental (pré-GA)**. Le support est limité, des incompatibilités ou changements peuvent survenir et les garanties de stabilité des services GA ne s’appliquent pas de la même manière. Consultez l’[aperçu Places UI Kit](https://developers.google.com/maps/documentation/javascript/places-ui-kit/overview) et les [launch stages](https://developers.google.com/maps/launch-stages) avant chaque publication. Si cette dépendance devient inadaptée, migrez vers une solution moderne GA documentée par Google — jamais vers le widget legacy.
+Le script reproductible et l’attribution CC BY 4.0 de l’asset GeoNames sont documentés dans `scripts/search/`.
 
-### 3. Créer et restreindre la clé navigateur
+## Configuration de Street View Embed
 
-Dans **Google Maps Platform → Credentials** :
+Dans Google Cloud :
 
-1. créez une clé API dédiée à cette application web ;
-2. dans **Application restrictions**, choisissez **Websites** ;
-3. ajoutez uniquement les référents nécessaires, par exemple :
+1. activez uniquement **Maps Embed API** pour cette intégration ;
+2. créez une clé dédiée ;
+3. limitez-la aux référents exacts du site dans **Application restrictions → Websites** ;
+4. limitez-la à **Maps Embed API** dans **API restrictions** ;
+5. placez-la dans `VITE_GOOGLE_MAPS_EMBED_API_KEY`.
 
-   ```text
-   http://localhost:5173
-   https://eclipse-2026.example.fr
-   https://eclipse-2026.vercel.app
-   ```
-
-4. dans **API restrictions**, choisissez **Restrict key**, puis seulement **Maps JavaScript API**, **Places UI Kit** et **Places API (New)** ;
-5. enregistrez et attendez quelques minutes le temps de la propagation.
-
-Le chargeur utilise `authReferrerPolicy: "origin"` : enregistrez donc les origines exactes, sans chemin final. Évitez un joker global comme `https://*.vercel.app`. Pour les previews Vercel, préférez une clé séparée limitée à un domaine de staging stable, ou n’injectez pas de clé dans ces environnements. Google recommande une clé distincte par application et par plateforme. Voir les [bonnes pratiques de sécurité Google Maps Platform](https://developers.google.com/maps/api-security-best-practices).
-
-### 4. Map ID facultatif
-
-Pour un style administré dans le cloud, créez un **Map ID** pour JavaScript dans **Google Maps Platform → Map Management**, associez-lui éventuellement un style, puis copiez l’identifiant dans `VITE_GOOGLE_MAP_ID`. Ce n’est pas une clé et il n’a pas à rester secret.
-
-### 5. Facturation, budgets et quotas
-
-Google facture séparément les principaux événements : chargement de carte dynamique, chargement réussi de panorama Street View dynamique, session d’autocomplétion Places UI Kit et requête de détails du lieu choisi. Les prix et plafonds gratuits peuvent changer ; vérifiez toujours la [tarification Google Maps Platform](https://developers.google.com/maps/billing-and-pricing/overview) et le [détail des SKU](https://developers.google.com/maps/billing-and-pricing/sku-details).
-
-Protection recommandée :
-
-1. créez un budget mensuel et plusieurs alertes (par exemple 25 %, 50 %, 75 %, 90 % et 100 %) dans [Billing → Budgets & alerts](https://console.cloud.google.com/billing/budgets) ;
-2. ajoutez les destinataires opérationnels et, si utile, une notification Pub/Sub ;
-3. dans [Google Maps Platform → Quotas](https://console.cloud.google.com/google/maps-apis/quotas), abaissez les quotas des seuls services activés à un trafic réaliste ;
-4. surveillez séparément Dynamic Maps, Dynamic Street View et Places UI Kit ;
-5. configurez des alertes de quota et contrôlez régulièrement les métriques par référent.
-
-**Un budget envoie des alertes mais ne bloque pas automatiquement les dépenses.** Les quotas constituent la barrière opérationnelle : lorsqu’ils sont atteints, des requêtes échouent et l’application doit afficher ses états d’erreur. Consultez [Budgets and budget alerts](https://cloud.google.com/billing/docs/how-to/budgets) et [Capping API usage](https://cloud.google.com/apis/docs/capping-api-usage).
+La clé est visible dans l’URL de l’iframe par conception. Sa protection repose sur ces restrictions. N’activez pas Maps JavaScript API, Places UI Kit, Places API ou Dynamic Street View pour cette clé. Pour les previews Vercel, préférez une clé séparée limitée à un domaine de staging stable. Consultez les [bonnes pratiques de sécurité Google Maps Platform](https://developers.google.com/maps/api-security-best-practices).
 
 ## Commandes de qualité
 
@@ -197,7 +179,7 @@ Pour reproduire exactement une installation CI, utilisez `npm ci` plutôt que `n
 1. importez le dépôt dans Vercel ;
 2. si le dépôt contient plusieurs projets, définissez **Root Directory** sur `eclipse-2026` ;
 3. gardez le preset **Vite**, la commande `npm run build` et le dossier de sortie `dist` ;
-4. ajoutez `VITE_GOOGLE_MAPS_API_KEY` et, si utilisés, `VITE_GOOGLE_MAP_ID`, `VITE_VISIBILITY_TILE_BASE_URL` et `VITE_CLOUDFLARE_WEB_ANALYTICS_TOKEN` dans **Project Settings → Environment Variables** ;
+4. ajoutez `VITE_GOOGLE_MAPS_EMBED_API_KEY` et, si utilisés, `VITE_BASEMAP_PMTILES_URL`, `VITE_BASEMAP_STYLE_URL`, `VITE_VISIBILITY_TILE_BASE_URL` et `VITE_CLOUDFLARE_WEB_ANALYTICS_TOKEN` dans **Project Settings → Environment Variables** ;
 5. choisissez explicitement les environnements Production/Preview/Development voulus ;
 6. déployez, puis ajoutez le domaine final aux restrictions HTTP de la clé Google ;
 7. redéployez après toute modification d’une variable `VITE_*`, car elle est incorporée à la compilation.
@@ -285,7 +267,10 @@ src/
 ├── lib/
 │   ├── astronomy.ts  # Soleil/Lune, contacts locaux, obscuration, coucher
 │   ├── geometry.ts   # azimut, POV, distances et différences angulaires
-│   ├── googleMaps.ts # chargeur unique et options Google Maps
+│   ├── googleMaps.ts # construction de l’unique URL Street View Embed
+│   ├── mapLibreBasemap.ts # style gratuit ou archive PMTiles
+│   ├── mapLibreVisibility.ts # couches raster LiDAR dans MapLibre
+│   ├── search/       # Géoplateforme, CartoCiudad et GeoNames
 │   └── format.ts     # dates, heures et directions françaises
 └── types/            # contrats TypeScript partagés
 scripts/lidar/         # génération reproductible de la couche IGN
@@ -294,9 +279,9 @@ public/visibility/    # tuiles XYZ statiques prêtes à déployer
 
 La séparation importante est la suivante :
 
-- `astronomy.ts` ne dépend ni de React ni de Google Maps et reste testable de façon déterministe ;
-- les changements de minute recalculent l’astronomie et mettent à jour le POV, sans rechercher ni recréer le panorama ;
-- une nouvelle position déclenche, elle, une recherche Street View progressive et met à jour la distance réelle au panorama ;
+- `astronomy.ts` ne dépend ni de React ni du moteur cartographique et reste testable de façon déterministe ;
+- les changements de minute recalculent l’astronomie et déplacent le repère solaire sans recharger l’iframe ;
+- une nouvelle position reconstruit une seule URL Street View Embed après temporisation, sans appel de recherche Street View JavaScript ;
 - la simulation graphique est une surcouche déclarée comme telle et ne modifie pas l’imagerie Google.
 
 ## Validation astronomique
@@ -334,16 +319,11 @@ La publication francilienne obtenue contient 26 243 PNG visibles pour environ
 classes intermédiaires restent dans `data/lidar/`, ignoré par Git, tandis que
 seules les petites pyramides dérivées sont envoyées vers R2.
 
-La carte conserve la plage de zoom native de Google, sans lui imposer de borne
-liée aux données. La couche reste disponible sur toute la plage Web Mercator
-utile (zooms 0 à 30) : sous le premier zoom publié, elle compose uniquement les
-tuiles source qui recoupent l’emprise ; au-delà du dernier, elle agrandit la
-dernière tuile et en recadre le quadrant correspondant. Le jaune reste ainsi
-aligné lors d’un zoom avant comme arrière, sans prétendre ajouter du détail
-LiDAR absent de la pyramide. Le rendu se fait dans un canvas de taille fixe :
-cela évite les transformations géantes au surzoom et, lorsqu’une tuile jaune
-non vide tomberait sous deux pixels au dézoom mondial, conserve un repère de
-présence indicatif de 2 × 2 px.
+MapLibre monte chaque pyramide LiDAR comme source raster XYZ, avec ses bornes et
+ses zooms natifs. Le moteur assure le surzoom sans inventer de détail et ne
+charge que les sources qui recoupent le point ou la vue courante. Le jaune reste
+ainsi aligné avec le fond vectoriel pendant les déplacements et changements de
+zoom.
 
 Le modèle calcule toujours quatre classes, mais la carte n’en peint qu’une : le **dégagement probable**, en jaune. « Horizon sensible », « incertain » et « masquage probable » restent transparents, pour que la carte réponde à une seule question au lieu d’imposer une légende à décoder. Les zones jaunes sont par ailleurs **élargies au rendu** — une rue dégagée de 10 m serait invisible au zoom ville — donc leurs contours sont indicatifs et non métriques ; la classification enregistrée, elle, conserve son étendue exacte.
 
@@ -386,27 +366,26 @@ heading = azimut solaire normalisé dans [0°, 360°)
 pitch   = altitude solaire, limitée à [-90°, +90°]
 ```
 
-À Paris vers le maximum, le POV attendu est donc environ `heading: 284`, `pitch: +7.7` : ouest-nord-ouest et légèrement au-dessus de l’horizon. Le mode `?debug=true` expose les valeurs source et le POV final pour repérer une inversion de signe ou une erreur de convention. Référence : [StreetViewPov](https://developers.google.com/maps/documentation/javascript/reference/street-view#StreetViewPov).
+À Paris vers le maximum, le point de vue attendu est donc environ `heading: 284`, `pitch: +7.7` : ouest-nord-ouest et légèrement au-dessus de l’horizon. Le mode `?debug=true` expose les valeurs source et les paramètres finaux pour repérer une inversion de signe ou une erreur de convention. Référence : [paramètres Street View Embed](https://developers.google.com/maps/documentation/embed/embedding-map#street_view_mode).
 
-Cette transformation vise une direction angulaire, pas un pixel garanti : nivellement du panorama, distorsion, recadrage, champ de vue, altitude de prise de vue et capteurs du véhicule peuvent introduire un petit écart visuel. Les changements de POV sont regroupés sur la trame d’animation suivante pour garder le marqueur synchronisé avec le canvas. La lecture suit le Soleil tant que la vue reste centrée ; dès que l’utilisateur tourne le panorama, sa caméra est respectée et seul le marqueur est reprojeté. Le bouton de recentrage réactive le suivi. La projection suit aussi les zooms fractionnaires de Street View avec la focale perspective réellement rendue, afin que la molette et le pincement restent disponibles sans détacher le marqueur du panorama.
+Ces valeurs configurent la caméra initiale de l’iframe **Maps Embed Street View**. L’application dessine ensuite le repère solaire calculé au-dessus de cette image, sans charger de panorama Maps JavaScript et sans proposer de mode alternatif. Comme Embed ne transmet pas ses mouvements de caméra à la page, le panorama reste verrouillé sur cette orientation connue : sinon le repère deviendrait faux après un panoramique. La timeline déplace le Soleil calculé sans recharger l’iframe.
 
-L’imagerie Street View n’est pas recolorée. Un filtre crépusculaire modifierait aussi les contrôles et attributions Google et n’est pas une intégration documentée ; l’ambiance du projet vient uniquement du cadre et des composants de l’application. Voir les [règles d’attribution Maps JavaScript](https://developers.google.com/maps/documentation/javascript/policies) et les [Google Geo Guidelines](https://about.google/brand-resource-center/products-and-services/geo-guidelines/).
+L’imagerie Street View n’est pas recolorée. Un filtre crépusculaire modifierait aussi les contrôles et attributions Google et n’est pas une intégration documentée ; l’ambiance du projet vient uniquement du cadre et des composants de l’application. Voir les [règles Maps Embed](https://developers.google.com/maps/documentation/embed/policies) et les [Google Geo Guidelines](https://about.google/brand-resource-center/products-and-services/geo-guidelines/).
 
 ## Maîtrise des appels et des coûts
 
 Le cycle de vie est volontairement conservateur :
 
-- le chargeur Maps est configuré une seule fois ;
-- chaque panneau conserve sa même instance `Map` ou `StreetViewPanorama` ;
-- la recherche de panorama est déclenchée uniquement quand l’observateur change, après temporisation ;
-- les recherches proches sont mises en cache par zone pendant la session ;
-- les rayons de recherche augmentent progressivement seulement en cas d’échec ;
-- déplacer la timeline ne fait que recalculer les corps célestes et appeler `setPov` ;
-- aucune requête Places ou Street View n’est lancée à chaque minute de lecture ;
-- la saisie d’adresse est gérée par une session d’autocomplétion du composant Google.
-- la couche LiDAR utilise des PNG statiques locaux ou un CDN et ne crée aucun appel Google Maps supplémentaire lors du déplacement de la timeline.
+- Maps JavaScript, Places et Dynamic Street View sont absents du code et des dépendances, en local comme en production ;
+- Street View utilise exclusivement Maps Embed ;
+- l’URL Embed ne change qu’après un changement de lieu temporisé, jamais pendant la timeline ;
+- MapLibre n’est initialisé sur mobile que lorsque l’onglet Carte est ouvert et conserve ensuite sa même instance ;
+- le fond de carte vient soit du service gratuit OpenFreeMap, soit d’une archive PMTiles sur R2 ;
+- GeoNames n’est téléchargé qu’à la première recherche et les géocodeurs ne sont jamais appelés sans saisie ;
+- déplacer la timeline ne déclenche aucune opération Street View ;
+- la couche LiDAR utilise des PNG statiques locaux ou R2 et ne crée aucun appel Google lors du déplacement de la timeline.
 
-Ce comportement compte car Google associe le SKU **Dynamic Street View** à l’instanciation du panorama, et non au simple déplacement du POV. La définition exacte des événements facturables peut évoluer : consultez les [règles de facturation Maps JavaScript API](https://developers.google.com/maps/documentation/javascript/usage-and-billing) avant le lancement.
+Le mode Embed est actuellement annoncé gratuit et sans limite d’usage. La définition des produits peut évoluer : consultez la [facturation Maps Embed API](https://developers.google.com/maps/documentation/embed/usage-and-billing) avant le lancement. Le test `noPaidGoogleApis.test.ts` empêche la réintroduction accidentelle d’un chargeur Google Maps/Places dans le bundle.
 
 ## Confidentialité, conditions EEE et limites connues
 
@@ -415,17 +394,20 @@ Ce comportement compte car Google associe le SKU **Dynamic Street View** à l’
 - L’application n’a pas de backend applicatif et ne crée pas de compte utilisateur.
 - La géolocalisation n’est demandée qu’après une action explicite et reste révocable via le navigateur.
 - Une URL partagée contient les coordonnées choisies en clair ; évitez de partager une position privée précise.
-- Google reçoit nécessairement certaines données pour servir Maps/Places/Street View, notamment requêtes, adresse IP et coordonnées. Avant publication publique, fournissez une politique de confidentialité et, si nécessaire, une gestion du consentement adaptée au public visé.
+- Google reçoit les informations nécessaires au seul panorama Street View Embed, notamment adresse IP et coordonnées.
+- Le fournisseur du fond OpenStreetMap reçoit les requêtes de carte correspondant à la zone regardée. En mode PMTiles R2, ce fournisseur est l’infrastructure Cloudflare du projet.
+- La Géoplateforme et CartoCiudad reçoivent le texte des recherches qui leur sont envoyées. La recherche mondiale GeoNames reste locale après le téléchargement de l’index statique.
 - Open-Meteo reçoit des coordonnées arrondies afin de servir la prévision horaire ; aucune position n’est conservée par l’application.
-- Conservez les attributions, liens, mentions et commandes imposés par Google ; ne masquez pas le logo ni les mentions Street View.
+- Conservez les attributions Google Street View, OpenStreetMap, GeoNames, IGN et CartoCiudad affichées par l’application.
 - La couche LiDAR conserve séparément l’attribution IGN et sa Licence Ouverte 2.0 ; elle n’est pas dérivée de contenu Google.
 
-Pour un compte de facturation domicilié dans l’Espace économique européen, les [Google Maps Platform EEA Terms](https://cloud.google.com/terms/maps-platform/eea) s’appliquent depuis le 8 juillet 2025 aux nouvelles intégrations, avec des fonctionnalités susceptibles de varier selon la région. Relisez également les [EEA Service Specific Terms](https://cloud.google.com/terms/maps-platform/eea/maps-service-terms), les [conditions utilisateur Google Maps](https://maps.google.com/help/terms_maps/) et la [politique de confidentialité Google](https://policies.google.com/privacy). Ce README décrit l’intégration technique ; il ne constitue pas un avis juridique.
+Relisez les [conditions utilisateur Google Maps](https://maps.google.com/help/terms_maps/), la [politique de confidentialité Google](https://policies.google.com/privacy) et les conditions de chaque fournisseur public avant la mise en production. Ce README décrit l’intégration technique ; il ne constitue pas un avis juridique.
 
 ### Ce que le diagnostic ne peut pas garantir
 
 - Street View n’est pas une vue en direct. La photo peut être ancienne, saisonnière ou prise depuis la chaussée.
-- La position du panorama diffère souvent du point choisi. L’interface affiche cette distance et réduit clairement la confiance au-delà d’environ 30 m.
+- La position du panorama diffère souvent du point choisi. Embed n’expose ni cette position ni sa distance à l’application.
+- `source=outdoor` exclut les vues intérieures, mais ne garantit pas une image produite par Google plutôt qu’un contenu public Street View.
 - La hauteur de caméra Street View n’est pas celle des yeux de l’utilisateur ; un obstacle proche peut donc changer la visibilité.
 - La couche IGN estime le relief, le bâti et la végétation à partir de millésimes hétérogènes. Hors Paris, la résolution est 5 m et les lacunes LiDAR utilisent des modèles de complément moins fins ; elle ne prédit ni les constructions récentes, ni l’état réel du feuillage, ni la réfraction locale. La météo affichée est une prévision séparée et évolutive.
 - Le viseur répond seulement à « dans quelle direction regarder ? ». S’il tombe dans le ciel de la photo, la vue **semble** dégagée ; s’il tombe sur un obstacle, cherchez un autre emplacement et vérifiez sur place.
@@ -436,18 +418,18 @@ Pour un compte de facturation domicilié dans l’Espace économique européen, 
 
 | Symptôme | Vérification |
 | --- | --- |
-| Carte grise ou « for development purposes only » | facturation active, clé valide, Maps JavaScript API activée |
+| Carte vide ou fond indisponible | testez `VITE_BASEMAP_STYLE_URL`; en PMTiles, contrôlez URL, CORS et réponse HTTP `206` aux requêtes Range |
+| Street View Embed vide ou en erreur | Maps Embed API activée, clé Embed présente et référent autorisé |
 | `RefererNotAllowedMapError` | domaine, protocole et port présents dans les restrictions Websites |
-| Champ d’adresse indisponible | Places UI Kit activé et autorisé dans les restrictions de la clé |
-| Suggestions affichées mais la sélection échoue (`PERMISSION_DENIED`) | **Places API (New)** activée : c’est un produit distinct de Places UI Kit |
-| Aucun panorama | élargissement progressif terminé ; essayez un point routier voisin |
+| Recherche française indisponible | testez `https://data.geopf.fr/geocodage/search` et vérifiez l’absence de 429 |
+| Recherche espagnole indisponible | testez les endpoints `candidates` puis `find` de CartoCiudad |
+| Villes mondiales absentes | vérifiez `/search/world-cities-geonames-20260811.min.json` et son type JSON |
+| Aucun panorama | essayez un point routier voisin ; Embed ne permet pas de rechercher automatiquement plusieurs rayons |
 | Géolocalisation refusée | autorisation du navigateur, contexte HTTPS en production |
 | URL partagée incorrecte | `lat`, `lng` valides et `time` compris dans la timeline |
 | Heures décalées | vérifiez le fuseau IANA renvoyé par Open-Meteo dans `?debug=true` ; le repli avant chargement est UTC |
 | « Éclipse non visible ici » | le lieu est hors de l’empreinte observable du 12 août 2026 ; essayez l’Europe, l’Afrique du Nord ou le nord de l’Amérique du Nord |
 
-La [liste officielle des erreurs Maps JavaScript API](https://developers.google.com/maps/documentation/javascript/error-messages) détaille les codes affichés dans la console du navigateur.
-
 ## Mise en production : l’unique étape manuelle indispensable
 
-**Créez une vraie clé Google Maps Platform facturée et strictement restreinte, puis placez-la dans `VITE_GOOGLE_MAPS_API_KEY` sur Vercel.** Tout le reste du projet peut être construit et testé localement sans secret ; seule cette clé permet de valider en conditions réelles la carte, Places UI Kit et Street View sur le domaine final.
+**Créez une seule clé limitée à Maps Embed API, placez-la dans `VITE_GOOGLE_MAPS_EMBED_API_KEY`, et vérifiez dans Google Cloud que Maps JavaScript, Places et Dynamic Street View restent à zéro.** Configurez ensuite `VITE_BASEMAP_PMTILES_URL` lorsque l’archive R2 est disponible ; jusque-là OpenFreeMap fournit le fond gratuit sans clé.

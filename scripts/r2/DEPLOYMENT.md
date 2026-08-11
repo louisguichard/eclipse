@@ -89,3 +89,32 @@ Après redéploiement, inspecter l’onglet Réseau du navigateur. Les requêtes
 doivent provenir de `tiles.louisguichard.fr`. Une tuile absente est une
 zone entièrement transparente et le composant cartographique masque proprement
 l’erreur d’image.
+
+## Fond MapLibre PMTiles
+
+Le même bucket peut contenir une archive cartographique sous un préfixe séparé.
+Placez l’archive à publier dans `data/basemap/eclipse-2026.pmtiles`, puis
+contrôlez la destination avant tout envoi :
+
+```bash
+npm run r2:basemap:plan
+npm run r2:basemap:publish -- --dry-run
+npm run r2:basemap:publish
+```
+
+La clé par défaut est `basemap/eclipse-2026-v1.pmtiles`. Elle peut être changée
+avec `CLOUDFLARE_R2_BASEMAP_KEY` dans `.env.r2.local`, à condition de conserver
+une extension `.pmtiles`. La publication est immutable et ne supprime aucun
+objet.
+
+Après vérification des réponses `206 Partial Content`, configurez le build :
+
+```dotenv
+VITE_BASEMAP_PMTILES_URL=https://tiles.louisguichard.fr/basemap/eclipse-2026-v1.pmtiles
+```
+
+Le client PMTiles utilise des requêtes HTTP Range. La politique CORS du domaine
+doit donc autoriser `GET` et `HEAD`; testez aussi que `Content-Length`, `ETag`
+et `Content-Range` sont accessibles au navigateur. Tant que l’archive n’est pas
+publiée, l’application utilise le style gratuit OpenFreeMap configuré par
+`VITE_BASEMAP_STYLE_URL`.

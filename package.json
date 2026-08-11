@@ -2,6 +2,7 @@
   "name": "eclipse-2026",
   "private": true,
   "version": "0.0.0",
+  "license": "MIT",
   "type": "module",
   "engines": {
     "node": "22.x"
@@ -14,6 +15,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
+    "search:cities:build": "python3 scripts/search/build_world_cities.py",
     "lidar:test": "python scripts/lidar/test_visibility_model.py",
     "lidar:generate": "python scripts/lidar/generate_paris_visibility.py",
     "lidar:idf": "python scripts/lidar/generate_idf_visibility.py",
@@ -25,15 +27,19 @@
     "r2:plan": "python3 scripts/r2/publish_visibility.py --plan",
     "r2:publish": "python3 scripts/r2/publish_visibility.py",
     "r2:verify": "python3 scripts/r2/verify_visibility_cdn.py",
+    "r2:basemap:plan": "python3 scripts/r2/publish_basemap.py --plan",
+    "r2:basemap:publish": "python3 scripts/r2/publish_basemap.py",
     "check": "npm run typecheck && npm run lint && npm test && npm run build",
     "preview": "vite preview"
   },
   "dependencies": {
     "@fontsource/ibm-plex-mono": "^5.3.0",
     "@fontsource/schibsted-grotesk": "^5.3.0",
-    "@googlemaps/js-api-loader": "^2.1.1",
+    "@protomaps/basemaps": "^5.7.2",
     "astronomy-engine": "^2.1.19",
     "lucide-react": "^1.30.0",
+    "maplibre-gl": "^6.3.0",
+    "pmtiles": "^4.5.0",
     "react": "^19.2.8",
     "react-dom": "^19.2.8"
   },
@@ -41,7 +47,6 @@
     "@tailwindcss/vite": "^4.3.3",
     "@testing-library/jest-dom": "^7.0.0",
     "@testing-library/react": "^16.3.2",
-    "@types/google.maps": "^3.65.5",
     "@types/node": "^24.13.3",
     "@types/react": "^19.2.17",
     "@types/react-dom": "^19.2.3",

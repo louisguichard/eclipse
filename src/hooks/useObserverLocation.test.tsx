@@ -13,29 +13,6 @@ describe('useObserverLocation URL synchronization', () => {
     cleanup()
   })
 
-  it('updates both the browser URL and share URL after a Street View walk', async () => {
-    const { result } = renderHook(() => useObserverLocation())
-
-    act(() => {
-      result.current.setLocation({
-        lat: 48.873667,
-        lng: 2.295891,
-        label: 'Position Street View',
-        source: 'streetview',
-      })
-    })
-
-    await waitFor(() => {
-      expect(new URLSearchParams(window.location.search).get('lat')).toBe('48.873667')
-      expect(new URLSearchParams(window.location.search).get('lng')).toBe('2.295891')
-    })
-
-    const shared = new URL(result.current.shareUrl())
-    expect(shared.searchParams.get('lat')).toBe('48.873667')
-    expect(shared.searchParams.get('lng')).toBe('2.295891')
-    expect(shared.searchParams.get('time')).toBe('62')
-  })
-
   it('preserves explicit coordinates exactly while the initial view loads', async () => {
     window.history.replaceState(null, '', '/?lat=48.873698&lng=2.295927&time=62')
 

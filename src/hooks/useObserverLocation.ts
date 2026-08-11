@@ -49,13 +49,11 @@ export function useObserverLocation() {
     setLocationState(next)
     // A Paris instant can fall after the eclipse in Alaska. Jump to the local
     // observable maximum on deliberate location changes, while preserving the
-    // chosen time during small Street View walks and initial shared-URL loads.
-    if (next.source !== 'streetview') {
-      const circumstances = localEclipseCircumstances(next)
-      setMinute(circumstances.visible
-        ? timelineMinuteFromDate(circumstances.maximum.time)
-        : TIMELINE.defaultMinute)
-    }
+    // chosen time only during the initial shared-URL load.
+    const circumstances = localEclipseCircumstances(next)
+    setMinute(circumstances.visible
+      ? timelineMinuteFromDate(circumstances.maximum.time)
+      : TIMELINE.defaultMinute)
   }, [])
 
   const requestGeolocation = useCallback(() => {

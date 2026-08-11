@@ -1,6 +1,19 @@
-import { useEffect, useRef, useState } from 'react'
 import { MapPin, Search } from 'lucide-react'
-import { hasGoogleMapsApiKey, loadGoogleLibrary } from '../lib/googleMaps'
+import {
+  useCallback,
+  useEffect,
+  useId,
+  useRef,
+  useState,
+} from 'react'
+import {
+  isAbortError,
+  MIN_SEARCH_CHARACTERS,
+  resolveSearchResult,
+  SEARCH_DEBOUNCE_MS,
+  searchLocations,
+} from '../lib/search'
+import type { SearchResult } from '../lib/search'
 import type { ObserverLocation } from '../types'
 
 type LocationSearchProps = {
@@ -9,146 +22,244 @@ type LocationSearchProps = {
   autoFocus?: boolean
 }
 
-type SearchStatus = 'idle' | 'loading' | 'ready' | 'error' | 'not-enabled'
+type SearchStatus = 'idle' | 'loading' | 'ready' | 'resolving' | 'error'
+const SEARCH_TIMEOUT_MS = 8_000
 
-const SEARCH_MESSAGES: Record<'error' | 'not-enabled', string> = {
-  error: 'Recherche indisponible. Cliquez sur la carte.',
-  // Autocomplete is served by Places UI Kit, but resolving the chosen
-  // prediction to coordinates is a Place Details call — a different product
-  // that has to be enabled separately. Suggestions appear, selection fails.
-  'not-enabled': 'Activez « Places API (New) » dans Google Cloud pour la recherche.',
+function optionDomId(listboxId: string, result: SearchResult): string {
+  return `${listboxId}-${result.id.replace(/[^a-zA-Z0-9_-]/g, '-')}`
 }
 
-/**
- * A denied Place Details call is a project-configuration problem, not a
- * transient one, so it earns its own message rather than the generic failure.
- */
-function isApiNotEnabled(error: unknown): boolean {
-  const text = error instanceof Error ? `${error.name} ${error.message}` : String(error)
-  return /PERMISSION_DENIED|has not been used in project|is disabled/i.test(text)
+function liveMessage(status: SearchStatus, results: SearchResult[]): string {
+  if (status === 'loading') return 'Recherche en cours'
+  if (status === 'resolving') return 'Localisation du résultat en cours'
+  if (status === 'error') return 'La recherche est momentanément indisponible'
+  if (status !== 'ready') return ''
+  if (results.length === 0) return 'Aucun résultat'
+  return `${results.length} résultat${results.length > 1 ? 's' : ''} disponible${results.length > 1 ? 's' : ''}`
 }
 
 export function LocationSearch({ observer, onSelect, autoFocus = false }: LocationSearchProps) {
-  const autocompleteHostRef = useRef<HTMLDivElement>(null)
-  const observerRef = useRef(observer)
-  const [status, setStatus] = useState<SearchStatus>(
-    hasGoogleMapsApiKey ? 'loading' : 'idle',
-  )
-
-  observerRef.current = observer
-
-  useEffect(() => {
-    if (!hasGoogleMapsApiKey) return
-    let cancelled = false
-    let autocomplete: google.maps.places.BasicPlaceAutocompleteElement | null = null
-
-    async function initialize() {
-      try {
-        const places = await loadGoogleLibrary('places')
-        if (cancelled || !autocompleteHostRef.current) return
-
-        autocomplete = new places.BasicPlaceAutocompleteElement({
-          requestedLanguage: 'fr',
-          placeholder: 'Rechercher un lieu…',
-          description: 'Rechercher un lieu d’observation dans le monde',
-          noInputIcon: true,
-        })
-        autocomplete.className = 'places-autocomplete'
-        autocomplete.style.colorScheme = 'dark'
-        autocomplete.origin = observerRef.current
-
-        // Resolving the place directly beats mounting a PlaceDetailsCompact
-        // element: that one has to be visible before it will fetch, which left
-        // a details panel parked over the map with no way to dismiss it.
-        autocomplete.addEventListener('gmp-select', (event) => {
-          const place = event.place
-          if (!place) return
-          setStatus('loading')
-
-          // For an EEA-billed project, Places API content used with a map is
-          // limited to coordinates and the Place ID. The autocomplete itself
-          // remains a Places UI Kit component, but the direct Place Details
-          // request must not retrieve a Google display name or address.
-          place
-            .fetchFields({ fields: ['location'] })
-            .then(() => {
-              if (cancelled) return
-              const location = place.location
-              if (!location) {
-                setStatus('error')
-                return
-              }
-              onSelect({
-                lat: location.lat(),
-                lng: location.lng(),
-                label: 'Adresse sélectionnée',
-                source: 'search',
-                placeId: place.id,
-              })
-              setStatus('ready')
-            })
-            .catch((error: unknown) => {
-              console.error('Place lookup failed', error)
-              if (!cancelled) setStatus(isApiNotEnabled(error) ? 'not-enabled' : 'error')
-            })
-        })
-        const handleAutocompleteError = () => setStatus('error')
-        autocomplete.addEventListener('gmp-error', handleAutocompleteError)
-        autocomplete.addEventListener('gmp-requesterror', handleAutocompleteError)
-
-        autocompleteHostRef.current.replaceChildren(autocomplete)
-        setStatus('ready')
-      } catch (error) {
-        console.error('Places UI Kit failed to load', error)
-        if (!cancelled) setStatus('error')
-      }
-    }
-
-    void initialize()
-    return () => {
-      cancelled = true
-      autocomplete?.remove()
-    }
-  }, [onSelect])
-
-  useEffect(() => {
-    const element = autocompleteHostRef.current?.firstElementChild
-    if (element instanceof HTMLElement && 'origin' in element) {
-      ;(element as google.maps.places.BasicPlaceAutocompleteElement).origin = observer
-    }
-  }, [observer])
+  const inputRef = useRef<HTMLInputElement>(null)
+  const selectionControllerRef = useRef<AbortController | null>(null)
+  const skipNextSearchRef = useRef(false)
+  const listboxId = `location-results-${useId().replace(/:/g, '')}`
+  const [query, setQuery] = useState('')
+  const [results, setResults] = useState<SearchResult[]>([])
+  const [status, setStatus] = useState<SearchStatus>('idle')
+  const [open, setOpen] = useState(false)
+  const [activeIndex, setActiveIndex] = useState(-1)
 
   useEffect(() => {
     if (!autoFocus) return undefined
-    const frame = window.requestAnimationFrame(() => {
-      const element = autocompleteHostRef.current?.firstElementChild
-      if (element instanceof HTMLElement) element.focus()
-    })
+    const frame = window.requestAnimationFrame(() => inputRef.current?.focus())
     return () => window.cancelAnimationFrame(frame)
   }, [autoFocus])
 
-  if (!hasGoogleMapsApiKey) {
-    return (
-      <div className="location-search-wrap">
-        <div className="location-search location-search--fallback" title="Ajoutez la clé Google Maps pour activer la recherche">
-          <Search aria-hidden="true" size={16} />
-          <input aria-label="Recherche d’adresse indisponible" disabled placeholder="Rechercher un lieu…" />
-          <span className="api-chip">Démo</span>
-        </div>
-      </div>
-    )
+  useEffect(() => {
+    if (skipNextSearchRef.current) {
+      skipNextSearchRef.current = false
+      setStatus('idle')
+      return undefined
+    }
+
+    const trimmedQuery = query.trim()
+    const controller = new AbortController()
+    if (trimmedQuery.length < MIN_SEARCH_CHARACTERS) {
+      setResults([])
+      setActiveIndex(-1)
+      setStatus('idle')
+      setOpen(trimmedQuery.length > 0)
+      return () => controller.abort()
+    }
+
+    setStatus('loading')
+    setOpen(true)
+    let requestTimeout: number | null = null
+    const timer = window.setTimeout(() => {
+      requestTimeout = window.setTimeout(() => {
+        controller.abort('timeout')
+        setResults([])
+        setActiveIndex(-1)
+        setStatus('error')
+      }, SEARCH_TIMEOUT_MS)
+      void searchLocations(trimmedQuery, { signal: controller.signal })
+        .then((nextResults) => {
+          if (controller.signal.aborted) return
+          setResults(nextResults)
+          setActiveIndex(nextResults.length > 0 ? 0 : -1)
+          setStatus('ready')
+        })
+        .catch((error: unknown) => {
+          if (controller.signal.aborted || isAbortError(error)) return
+          setResults([])
+          setActiveIndex(-1)
+          setStatus('error')
+        })
+        .finally(() => {
+          if (requestTimeout !== null) window.clearTimeout(requestTimeout)
+        })
+    }, SEARCH_DEBOUNCE_MS)
+
+    return () => {
+      window.clearTimeout(timer)
+      if (requestTimeout !== null) window.clearTimeout(requestTimeout)
+      controller.abort()
+    }
+  }, [query])
+
+  useEffect(() => () => selectionControllerRef.current?.abort(), [])
+
+  const selectResult = useCallback(async (result: SearchResult) => {
+    selectionControllerRef.current?.abort()
+    const controller = new AbortController()
+    selectionControllerRef.current = controller
+    setStatus('resolving')
+    const timeout = window.setTimeout(() => {
+      controller.abort('timeout')
+      if (selectionControllerRef.current === controller) {
+        setStatus('error')
+        setOpen(true)
+      }
+    }, SEARCH_TIMEOUT_MS)
+    try {
+      const location = await resolveSearchResult(result, { signal: controller.signal })
+      if (controller.signal.aborted) return
+      if (location.label !== query) {
+        skipNextSearchRef.current = true
+        setQuery(location.label)
+      }
+      setResults([])
+      setActiveIndex(-1)
+      setOpen(false)
+      setStatus('idle')
+      onSelect(location)
+    } catch (error) {
+      if (controller.signal.aborted || isAbortError(error)) return
+      setStatus('error')
+      setOpen(true)
+    } finally {
+      window.clearTimeout(timeout)
+    }
+  }, [onSelect, query])
+
+  const handleKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
+    if (event.key === 'Escape') {
+      setOpen(false)
+      setActiveIndex(-1)
+      return
+    }
+    if (results.length === 0) return
+
+    if (event.key === 'ArrowDown') {
+      event.preventDefault()
+      setOpen(true)
+      setActiveIndex((index) => index >= results.length - 1 ? 0 : index + 1)
+    } else if (event.key === 'ArrowUp') {
+      event.preventDefault()
+      setOpen(true)
+      setActiveIndex((index) => index <= 0 ? results.length - 1 : index - 1)
+    } else if (event.key === 'Home' && open) {
+      event.preventDefault()
+      setActiveIndex(0)
+    } else if (event.key === 'End' && open) {
+      event.preventDefault()
+      setActiveIndex(results.length - 1)
+    } else if (event.key === 'Enter' && open && activeIndex >= 0) {
+      event.preventDefault()
+      const result = results[activeIndex]
+      if (result) void selectResult(result)
+    }
   }
 
+  const showPopup = open && query.trim().length > 0
+  const listboxOpen = showPopup && results.length > 0
+  const busy = status === 'loading' || status === 'resolving'
+  const activeResult = activeIndex >= 0 ? results[activeIndex] : null
+
   return (
-    <div className="location-search-wrap">
+    <div
+      className="location-search-wrap"
+      title={`Position actuelle : ${observer.label}`}
+      onBlur={(event) => {
+        if (!event.currentTarget.contains(event.relatedTarget)) setOpen(false)
+      }}
+    >
       <div className="location-search">
         <Search aria-hidden="true" size={16} />
-        <div className="places-host" ref={autocompleteHostRef} />
-        {status === 'loading' && <span className="search-spinner" aria-label="Chargement" />}
+        <input
+          ref={inputRef}
+          className="location-search__input"
+          type="search"
+          value={query}
+          placeholder="Rechercher une adresse ou une ville…"
+          aria-label="Rechercher une adresse ou une ville"
+          role="combobox"
+          aria-autocomplete="list"
+          aria-expanded={listboxOpen}
+          aria-controls={listboxOpen ? listboxId : undefined}
+          aria-activedescendant={activeResult ? optionDomId(listboxId, activeResult) : undefined}
+          aria-busy={busy}
+          autoComplete="off"
+          spellCheck="false"
+          onChange={(event) => setQuery(event.target.value)}
+          onFocus={() => {
+            if (query.trim().length > 0) setOpen(true)
+          }}
+          onKeyDown={handleKeyDown}
+        />
+        {busy && <span className="search-spinner" aria-hidden="true" />}
       </div>
-      {(status === 'error' || status === 'not-enabled') && (
-        <div className="search-error" role="status">
-          <MapPin size={13} /> {SEARCH_MESSAGES[status]}
+
+      <span className="sr-only" role="status" aria-live="polite">
+        {liveMessage(status, results)}
+      </span>
+
+      {showPopup && (
+        <div className="location-search__popup">
+          {query.trim().length < MIN_SEARCH_CHARACTERS ? (
+            <p className="location-search__notice">
+              Saisissez encore {MIN_SEARCH_CHARACTERS - query.trim().length} caractère{query.trim().length === MIN_SEARCH_CHARACTERS - 1 ? '' : 's'}.
+            </p>
+          ) : status === 'error' ? (
+            <p className="location-search__notice location-search__notice--error">
+              <MapPin aria-hidden="true" size={13} /> Recherche momentanément indisponible.
+            </p>
+          ) : status === 'ready' && results.length === 0 ? (
+            <p className="location-search__notice">Aucun lieu trouvé.</p>
+          ) : results.length > 0 ? (
+            <ul id={listboxId} className="location-search__results" role="listbox">
+              {results.map((result, index) => (
+                <li key={result.id} role="presentation">
+                  <button
+                    id={optionDomId(listboxId, result)}
+                    className="location-search__option"
+                    type="button"
+                    role="option"
+                    tabIndex={-1}
+                    aria-selected={index === activeIndex}
+                    onPointerDown={(event) => event.preventDefault()}
+                    onPointerMove={() => setActiveIndex(index)}
+                    onClick={() => void selectResult(result)}
+                  >
+                    <MapPin aria-hidden="true" size={14} />
+                    <span>
+                      <strong>{result.label}</strong>
+                      <small>{result.detail}</small>
+                    </span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          ) : null}
+
+          <p className="location-search__sources">
+            Sources :{' '}
+            <a href="https://cartes.gouv.fr/aide/fr/guides-utilisateur/utiliser-les-services-de-la-geoplateforme/geocodage/" target="_blank" rel="noreferrer">Géoplateforme</a>
+            {' · '}
+            <a href="https://www.cartociudad.es/" target="_blank" rel="noreferrer">CartoCiudad</a>
+            {' · '}
+            <a href="https://www.geonames.org/" target="_blank" rel="noreferrer">GeoNames</a>
+          </p>
         </div>
       )}
     </div>

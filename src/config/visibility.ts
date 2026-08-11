@@ -208,8 +208,8 @@ export const URBAN_UNIT_VISIBILITY_MANIFESTS =
 
 /**
  * Priority order is part of the rendering contract: fine datasets come first.
- * MapView inserts each entry at index zero, leaving Paris at the highest index
- * so it is painted above any intersecting 5 m regional pyramid.
+ * MapView mounts the reversed catalogue, so later fine layers (notably Paris)
+ * paint above any intersecting 5 m regional pyramid.
  */
 export const VISIBILITY_DATASETS = [
   PARIS_VISIBILITY_MANIFEST,

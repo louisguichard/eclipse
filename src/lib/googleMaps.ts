@@ -1,31 +1,19 @@
-import { importLibrary, setOptions } from '@googlemaps/js-api-loader'
+import { buildGoogleStreetViewEmbedUrl } from './googleMapsEmbed'
+import type { LatLng, StreetViewCamera } from '../types'
 
-const apiKey = import.meta.env.VITE_GOOGLE_MAPS_API_KEY?.trim()
-let configured = false
+const configuredEmbedApiKey = import.meta.env.VITE_GOOGLE_MAPS_EMBED_API_KEY?.trim()
+// Backward-compatible migration path for an existing local/Vercel variable.
+// The value is used only in an Embed URL: this module contains no Maps
+// JavaScript loader and cannot initialize a billable Maps or Places SKU.
+const legacyEmbedApiKey = import.meta.env.VITE_GOOGLE_MAPS_API_KEY?.trim()
+const embedApiKey = configuredEmbedApiKey || legacyEmbedApiKey
 
-export const hasGoogleMapsApiKey = Boolean(apiKey)
+export const hasGoogleMapsEmbedApiKey = Boolean(embedApiKey)
 
-function configureGoogleMaps(): void {
-  if (configured || !apiKey) return
-  setOptions({
-    key: apiKey,
-    v: '3.65',
-    language: 'fr',
-    authReferrerPolicy: 'origin',
-  })
-  configured = true
-}
-
-export async function loadGoogleLibrary<T extends Parameters<typeof importLibrary>[0]>(
-  library: T,
-) {
-  if (!apiKey) {
-    throw new Error('VITE_GOOGLE_MAPS_API_KEY manquante')
-  }
-  configureGoogleMaps()
-  return importLibrary(library)
-}
-
-export function googleMapId(): string | undefined {
-  return import.meta.env.VITE_GOOGLE_MAP_ID?.trim() || undefined
+export function googleStreetViewEmbedUrl(
+  location: LatLng,
+  camera: StreetViewCamera,
+): string | null {
+  if (!embedApiKey) return null
+  return buildGoogleStreetViewEmbedUrl(embedApiKey, location, camera)
 }

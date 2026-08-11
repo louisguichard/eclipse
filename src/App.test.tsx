@@ -1,6 +1,6 @@
 /** @vitest-environment jsdom */
 
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import '@testing-library/jest-dom/vitest'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { TimelinePlaybackController } from './hooks/useTimelinePlayback'
@@ -44,7 +44,6 @@ const snapshot = {
   },
 } as EclipseSnapshot
 
-vi.mock('./lib/googleMaps', () => ({ hasGoogleMapsApiKey: false }))
 vi.mock('./hooks/useObserverLocation', () => ({
   useObserverLocation: () => ({
     location: { lat: 48.8566, lng: 2.3522, label: 'Paris', source: 'default' },
@@ -78,14 +77,7 @@ vi.mock('./components/MapView', () => ({
   ),
 }))
 vi.mock('./components/StreetView', () => ({
-  StreetView: ({ onUserPositionChange }: { onUserPositionChange?: (position: { lat: number; lng: number }) => void }) => (
-    <button
-      type="button"
-      onClick={() => onUserPositionChange?.({ lat: 48.873667, lng: 2.295891 })}
-    >
-      Avancer dans Street View
-    </button>
-  ),
+  StreetView: () => null,
 }))
 vi.mock('./components/EclipseInfo', () => ({ EclipseInfo: () => null }))
 vi.mock('./components/LegalModal', () => ({ LegalModal: () => null }))
@@ -115,9 +107,24 @@ vi.mock('./components/WeatherCard', () => ({ WeatherCard: () => null }))
 afterEach(() => {
   cleanup()
   vi.clearAllMocks()
+  vi.useRealTimers()
 })
 
 describe('mobile view routing', () => {
+  it('announces the temporary maintenance message after one second', () => {
+    vi.useFakeTimers()
+    render(<App />)
+
+    expect(screen.queryByText(/Une mise à jour de l'application est en cours/)).not.toBeInTheDocument()
+    act(() => vi.advanceTimersByTime(999))
+    expect(screen.queryByText(/Une mise à jour de l'application est en cours/)).not.toBeInTheDocument()
+    act(() => vi.advanceTimersByTime(1))
+
+    const message = screen.getByText(/Une mise à jour de l'application est en cours/)
+    expect(message).toHaveAttribute('role', 'status')
+    expect(message.closest('.app-shell')).toHaveClass('has-maintenance-banner')
+  })
+
   it('opens Street View after selecting a point on the map', () => {
     render(<App />)
     fireEvent.click(screen.getByRole('tab', { name: 'Carte' }))
@@ -173,19 +180,6 @@ describe('mobile view routing', () => {
 
     expect(mocks.setLocation).toHaveBeenCalledWith(SEARCH_POINT)
     expect(screen.getByRole('tab', { name: 'Carte' })).toHaveAttribute('aria-selected', 'true')
-  })
-
-  it('promotes a Street View walk to the observer so URL sharing follows it', () => {
-    render(<App />)
-
-    fireEvent.click(screen.getByRole('button', { name: 'Avancer dans Street View' }))
-
-    expect(mocks.setLocation).toHaveBeenCalledWith({
-      lat: 48.873667,
-      lng: 2.295891,
-      label: 'Position Street View',
-      source: 'streetview',
-    })
   })
 
   it('keeps sharing in the title menu with an explicit author label', () => {

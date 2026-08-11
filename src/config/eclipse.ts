@@ -26,9 +26,6 @@ export const PARIS_REFERENCE = {
 
 export const STREET_VIEW = {
   zoom: 1,
-  searchRadiiMeters: [25, 50, 100, 250, 500, 1000],
-  confidenceDistanceMeters: 30,
-  centeredToleranceDegrees: 1.25,
   /**
    * The solar disc is drawn slightly above its true angular size. Half a
    * degree is geometrically correct but perceptually smaller than the Sun

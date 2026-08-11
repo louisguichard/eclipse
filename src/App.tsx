@@ -21,20 +21,12 @@ import { MobileDialTimeline } from './components/MobileDialTimeline'
 import { StreetView } from './components/StreetView'
 import { Timeline } from './components/Timeline'
 import { formatLocalDateTime } from './lib/format'
-import { hasGoogleMapsApiKey } from './lib/googleMaps'
 import { useEclipse } from './hooks/useEclipse'
 import { useObserverLocation } from './hooks/useObserverLocation'
 import { useWeather } from './hooks/useWeather'
 import { useTimelinePlayback } from './hooks/useTimelinePlayback'
 import { TIMELINE } from './config/eclipse'
-import type { LatLng, MobileView, PanoramaState } from './types'
-
-const INITIAL_PANORAMA: PanoramaState = {
-  status: hasGoogleMapsApiKey ? 'idle' : 'demo',
-  position: null,
-  distanceMeters: null,
-  radiusMeters: null,
-}
+import type { MobileView } from './types'
 
 function App() {
   const {
@@ -54,13 +46,10 @@ function App() {
   const [mobileView, setMobileView] = useState<MobileView>('street')
   const [mobileLayer, setMobileLayer] = useState<'menu' | 'search' | null>(null)
   const [desktopMapExpanded, setDesktopMapExpanded] = useState(false)
-  // The Sun starts at its true angular size — half a degree, a few pixels.
-  // Magnifying it is an explicit choice, not the default impression.
-  const [expandedSimulation, setExpandedSimulation] = useState(false)
-  const [, setPanorama] = useState<PanoramaState>(INITIAL_PANORAMA)
   const [copied, setCopied] = useState(false)
   const [online, setOnline] = useState(navigator.onLine)
   const [legal, setLegal] = useState<'privacy' | 'terms' | null>(null)
+  const [maintenanceVisible, setMaintenanceVisible] = useState(false)
   const debug = useMemo(() => new URLSearchParams(window.location.search).get('debug') === 'true', [])
   const cloudCover = weather.snapshot?.cloudCover
   const timeZone = weather.timeZone ?? 'UTC'
@@ -86,6 +75,11 @@ function App() {
       window.removeEventListener('online', update)
       window.removeEventListener('offline', update)
     }
+  }, [])
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => setMaintenanceVisible(true), 1_000)
+    return () => window.clearTimeout(timer)
   }, [])
 
   useEffect(() => {
@@ -142,14 +136,6 @@ function App() {
     setMobileView('street')
   }, [setLocation])
 
-  const selectStreetViewLocation = useCallback((position: LatLng) => {
-    setLocation({
-      ...position,
-      label: 'Position Street View',
-      source: 'streetview',
-    })
-  }, [setLocation])
-
   if (!snapshot || astronomyError) {
     return (
       <main className="fatal-error">
@@ -162,7 +148,16 @@ function App() {
   }
 
   return (
-    <div className="app-shell" data-mobile-view={mobileView}>
+    <div
+      className={`app-shell ${maintenanceVisible ? 'has-maintenance-banner' : ''}`}
+      data-mobile-view={mobileView}
+    >
+      {maintenanceVisible && (
+        <div className="maintenance-banner" role="status">
+          🚧 Une mise à jour de l'application est en cours. En cas de problème, revenez d'ici une heure !
+        </div>
+      )}
+
       {!online && (
         <div className="offline-banner" role="status">
           <WifiOff size={13} /> Hors connexion
@@ -253,7 +248,9 @@ function App() {
           <div className="mobile-title-menu__credits">
             <span className="mobile-title-menu__source-title">Sources</span>
             <span>Astronomie · Astronomy Engine · NASA</span>
-            <span>Carte · Google Maps · Street View</span>
+            <span>Vue · Google Street View Embed</span>
+            <span>Carte · MapLibre · OpenStreetMap</span>
+            <span>Recherche · IGN · CartoCiudad · GeoNames</span>
             <span>Météo · Open-Meteo</span>
             <span>Relief · IGN LiDAR HD</span>
             <span>
@@ -268,7 +265,7 @@ function App() {
       {(geolocationStatus === 'denied' || geolocationStatus === 'error') && (
         <div className="permission-message" role="status">
           {geolocationStatus === 'denied'
-            ? 'Accès à la position refusé. Autorisez-le dans le navigateur ou cliquez sur la carte.'
+            ? 'Accès à la position refusé. Recherchez une adresse ou cliquez sur la carte.'
             : 'Position introuvable. Recherchez une adresse ou cliquez sur la carte.'}
         </div>
       )}
@@ -288,14 +285,8 @@ function App() {
             <StreetView
               observer={location}
               snapshot={snapshot}
-              timeZone={timeZone}
               active={mobileView === 'street'}
-              expanded={expandedSimulation}
-              onExpandedChange={setExpandedSimulation}
-              onPanoramaStateChange={setPanorama}
-              onUserPositionChange={selectStreetViewLocation}
               cloudCover={cloudCover}
-              debug={debug}
             />
           </div>
         </section>

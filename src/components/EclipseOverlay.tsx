@@ -13,14 +13,11 @@ export type EclipseOverlayProps = {
     y: number
   }
   visible: boolean
-  demo?: boolean
   cloudCover?: number | null
 }
 
 /** The SVG draws the Sun at r=70 inside a 200-unit box. */
 const DISC_FILL_RATIO = 140 / 200
-const MAGNIFICATION = 12
-const MAGNIFIED_RANGE = { min: 44, max: 132 }
 
 export function EclipseOverlay({
   snapshot,
@@ -28,7 +25,6 @@ export function EclipseOverlay({
   diameterPixels,
   position,
   visible,
-  demo = false,
   cloudCover = null,
 }: EclipseOverlayProps) {
   const rawId = useId()
@@ -37,13 +33,8 @@ export function EclipseOverlay({
   const moonRadius = Math.max(0, snapshot.moonAngularRadius * scale)
   const moonX = 100 + snapshot.moonOffset.horizontal * scale
   const moonY = 100 - snapshot.moonOffset.vertical * scale
-  // Unmagnified, the Sun is a handful of pixels across — that is very nearly
-  // what half a degree looks like. The magnified mode exists to inspect the
-  // crescent, not to correct the scale.
   const boxSize = Math.max(3, diameterPixels / DISC_FILL_RATIO)
-  const diskSize = expanded
-    ? Math.min(MAGNIFIED_RANGE.max, Math.max(MAGNIFIED_RANGE.min, boxSize * MAGNIFICATION))
-    : Math.max(32, boxSize)
+  const diskSize = expanded ? Math.min(132, Math.max(44, boxSize * 12)) : Math.max(32, boxSize)
   const belowHorizon = snapshot.sun.altitude < -0.833
   const mobileTravel = (0.5 / Math.max(snapshot.sunAngularRadius, 0.0001)) * 100
   const eclipseRatio = Math.min(
@@ -56,7 +47,7 @@ export function EclipseOverlay({
   return (
     <div
       aria-hidden={!visible}
-      aria-label={`Position simulée du Soleil, éclipse occultée à ${formatObscuration(snapshot.obscuration)}`}
+      aria-label={`Position calculée du Soleil, éclipse occultée à ${formatObscuration(snapshot.obscuration)}`}
       className="sun-marker"
       data-visible={visible}
       style={{
@@ -133,7 +124,6 @@ export function EclipseOverlay({
 
       <span className="sun-marker__label">
         {belowHorizon ? 'Sous l’horizon' : 'Le Soleil'}
-        {demo ? ' · aperçu' : ''}
       </span>
     </div>
   )

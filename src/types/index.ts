@@ -9,12 +9,10 @@ export type LocationSource =
   | 'map'
   | 'geolocation'
   | 'url'
-  | 'streetview'
 
 export type ObserverLocation = LatLng & {
   label: string
   source: LocationSource
-  placeId?: string
 }
 
 export type HorizontalCoordinates = {

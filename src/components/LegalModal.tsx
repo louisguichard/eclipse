@@ -23,15 +23,15 @@ export function LegalModal({ type, onClose }: LegalModalProps) {
         {privacy ? (
           <>
             <p>L’application traite la position choisie dans votre navigateur pour calculer la direction du Soleil. Elle ne possède ni compte utilisateur, ni serveur applicatif, ni base de données.</p>
-            <p>Votre position précise n’est demandée qu’après action sur « Ma position ». Elle n’est transmise à Google Maps que pour afficher la carte, rechercher un panorama ou effectuer une recherche de lieu. Le lien de partage ne contient les coordonnées qu’après votre action explicite.</p>
-            <p>Les coordonnées arrondies sont également envoyées à Open-Meteo pour obtenir la prévision horaire. Google peut traiter des données conformément à sa <a href="https://policies.google.com/privacy" target="_blank" rel="noreferrer">politique de confidentialité</a>. Aucun contenu Street View n’est analysé ni mis en cache par cette application.</p>
+            <p>Votre position précise n’est demandée qu’après action sur « Ma position ». La position choisie apparaît dans l’URL afin que la vue puisse être partagée. Elle est envoyée à Google uniquement pour charger le panorama Street View Embed ; aucune API Google Maps ou Places facturable n’est utilisée.</p>
+            <p>Les coordonnées arrondies sont envoyées à Open-Meteo pour obtenir la prévision horaire. Une recherche d’adresse peut interroger les géocodeurs publics français ou espagnol ; la recherche mondiale de villes utilise un index GeoNames téléchargé par le navigateur. Le fond de carte provient de données OpenStreetMap servies par le fournisseur configuré. Google peut traiter les données de l’iframe conformément à sa <a href="https://policies.google.com/privacy" target="_blank" rel="noreferrer">politique de confidentialité</a>. Aucun contenu Street View n’est analysé ni mis en cache par cette application.</p>
             <p>Lorsque la mesure d’audience est activée, Cloudflare Web Analytics reçoit son beacon standard de visite et de performance. Cette application ne lui envoie aucun événement personnalisé ; Cloudflare indique ne pas journaliser les paramètres de l’URL. Consultez la <a href="https://www.cloudflare.com/privacypolicy/" target="_blank" rel="noreferrer">politique de confidentialité Cloudflare</a>.</p>
           </>
         ) : (
           <>
             <p>Cette application fournit une simulation astronomique à titre informatif. Vérifiez les conditions météo, l’horizon et l’emplacement sur place. Ne vous placez jamais sur une chaussée pour reproduire le point de vue d’un panorama.</p>
             <p>La météo est une prévision Open-Meteo susceptible d’évoluer jusqu’à l’événement. Elle ne garantit ni l’absence de nuages ni la visibilité réelle.</p>
-            <p>Les fonctionnalités et contenus Google Maps sont soumis aux <a href="https://maps.google.com/help/terms_maps/" target="_blank" rel="noreferrer">conditions supplémentaires Google Maps</a> et à la <a href="https://policies.google.com/privacy" target="_blank" rel="noreferrer">politique de confidentialité Google</a>.</p>
+            <p>Le panorama Google Street View Embed est soumis aux <a href="https://maps.google.com/help/terms_maps/" target="_blank" rel="noreferrer">conditions supplémentaires Google Maps</a>. La carte repose sur MapLibre et des données OpenStreetMap ; les résultats de recherche peuvent provenir de l’IGN, de CartoCiudad et de GeoNames, selon la zone.</p>
             <p>Street View est une approximation : la photo peut être ancienne, prise depuis la chaussée et légèrement décalée ou inclinée. L’altitude du Soleil est convertie dans le repère de la caméra sans correction de pente inaccessible à l’API.</p>
           </>
         )}

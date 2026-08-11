@@ -6,20 +6,13 @@ import type {
 export const WEB_MERCATOR_MAX_LATITUDE = 85.05112878
 export const WEB_MERCATOR_MAX_ZOOM = 30
 
-/** Overlay bounds only; the Google map UI keeps its native location-dependent range. */
+/** Shared display range used by catalogue-selection and tile geometry helpers. */
 export const VISIBILITY_MIN_DISPLAY_ZOOM = 0
 export const VISIBILITY_MAX_DISPLAY_ZOOM = WEB_MERCATOR_MAX_ZOOM
-
-/** A geographic feature smaller than this becomes an indicative map dot. */
-export const MIN_VISIBILITY_FOOTPRINT_PIXELS = 2
 
 export type TileCoordinate = {
   x: number
   y: number
-}
-
-export type VisibilityMapTypeConstructors = {
-  Size: typeof google.maps.Size
 }
 
 export type VisibilityTileRequest = {
@@ -30,18 +23,6 @@ export type VisibilityTileRequest = {
   left: number
   top: number
 }
-
-export type VisibilityImageMapTypeResult =
-  | {
-      status: 'ready'
-      mapType: google.maps.MapType
-      message: null
-    }
-  | {
-      status: 'unavailable' | 'error'
-      mapType: null
-      message: string
-    }
 
 function tileCount(zoom: number): number {
   if (!Number.isInteger(zoom) || zoom < 0 || zoom > WEB_MERCATOR_MAX_ZOOM) {
@@ -136,10 +117,9 @@ export function pointInGeographicBounds(
 }
 
 /**
- * Returns ready datasets in catalogue order (fine to coarse) that can paint
- * either the observation point or the visible map. Outside a pyramid's native
- * range, its nearest published level remains mounted through the shared map
- * zoom range.
+ * Returns ready datasets in catalogue order (fine to coarse) whose coverage
+ * intersects either the observation point or the visible map. The renderer
+ * remains responsible for respecting each source's native zoom range.
  */
 export function visibilityDatasetsForView(
   manifests: readonly VisibilityDatasetManifest[],
@@ -260,7 +240,7 @@ function coverageTileXRanges(
 }
 
 /**
- * Resolves a displayed Google tile to one or more published source tiles. At
+ * Resolves a displayed Web Mercator tile to one or more published source tiles. At
  * native zooms this is a one-to-one lookup. Overzoom selects one precise child
  * quadrant of the last level; underzoom builds a small mosaic from the first
  * level so the overlay also remains present at world scale.
@@ -353,170 +333,4 @@ export function resolveVisibilityTileRequests(
     }
   }
   return requests
-}
-
-export function createVisibilityImageMapType(
-  constructors: VisibilityMapTypeConstructors,
-  manifest: VisibilityDatasetManifest,
-  opacity: number,
-): VisibilityImageMapTypeResult {
-  const issue = visibilityManifestIssue(manifest)
-  if (issue || !manifest.tiles) {
-    return {
-      status: manifest.availability === 'unavailable' ? 'unavailable' : 'error',
-      mapType: null,
-      message: issue ?? 'Données de visibilité indisponibles.',
-    }
-  }
-
-  const safeOpacity = Math.max(0, Math.min(1, opacity))
-  const tileSize = manifest.tiles.tileSize
-  const minimumDisplayZoom = Math.min(
-    manifest.tiles.minZoom,
-    VISIBILITY_MIN_DISPLAY_ZOOM,
-  )
-  const maximumDisplayZoom = Math.max(
-    manifest.tiles.maxZoom,
-    VISIBILITY_MAX_DISPLAY_ZOOM,
-  )
-  const visibilityColor = manifest.legend.find(({ id }) => id === 'clear')?.color
-    ?? '#ffc933'
-  const releasedTiles = new WeakSet<Element>()
-  const mapType: google.maps.MapType = {
-    alt: manifest.disclaimer,
-    name: manifest.label,
-    minZoom: minimumDisplayZoom,
-    maxZoom: maximumDisplayZoom,
-    projection: null,
-    radius: 6_378_137,
-    tileSize: new constructors.Size(tileSize, tileSize),
-    getTile: (coordinate, zoom, ownerDocument) => {
-      const tile = ownerDocument.createElement('div')
-      tile.style.width = `${tileSize}px`
-      tile.style.height = `${tileSize}px`
-      tile.style.position = 'relative'
-      tile.style.overflow = 'hidden'
-      tile.style.opacity = String(safeOpacity)
-
-      // A fixed-size canvas avoids both rendering failure modes of CSS image
-      // transforms: sub-pixel rasters at world zoom and multi-million-pixel
-      // offsets at close zoom. Drawing cross-origin images is allowed; the
-      // canvas may be tainted, but it is never read back.
-      const canvas = ownerDocument.createElement('canvas')
-      canvas.width = tileSize
-      canvas.height = tileSize
-      canvas.ariaHidden = 'true'
-      canvas.style.position = 'absolute'
-      canvas.style.inset = '0'
-      canvas.style.width = `${tileSize}px`
-      canvas.style.height = `${tileSize}px`
-      tile.append(canvas)
-      const context = canvas.getContext('2d')
-
-      const requests = resolveVisibilityTileRequests(manifest, coordinate, zoom)
-      for (const request of requests) {
-        const image = ownerDocument.createElement('img')
-        image.alt = ''
-        image.ariaHidden = 'true'
-        image.decoding = 'async'
-        image.draggable = false
-        image.width = tileSize
-        image.height = tileSize
-        if (context) {
-          image.style.display = 'none'
-          image.addEventListener('load', () => {
-            if (releasedTiles.has(tile)) return
-            if (request.scale >= 1) {
-              const exactSourceSize = tileSize / request.scale
-              const sourceSize = Math.max(1, exactSourceSize)
-              const sourceX = exactSourceSize < 1
-                ? Math.floor(-request.left / request.scale)
-                : -request.left / request.scale
-              const sourceY = exactSourceSize < 1
-                ? Math.floor(-request.top / request.scale)
-                : -request.top / request.scale
-              context.imageSmoothingEnabled = false
-              context.drawImage(
-                image,
-                sourceX,
-                sourceY,
-                sourceSize,
-                sourceSize,
-                0,
-                0,
-                tileSize,
-                tileSize,
-              )
-              return
-            }
-
-            const renderedSize = tileSize * request.scale
-            context.imageSmoothingEnabled = true
-            context.drawImage(
-              image,
-              0,
-              0,
-              tileSize,
-              tileSize,
-              request.left,
-              request.top,
-              renderedSize,
-              renderedSize,
-            )
-            if (renderedSize <= MIN_VISIBILITY_FOOTPRINT_PIXELS) {
-              const markerLeft = Math.max(0, Math.min(
-                tileSize - MIN_VISIBILITY_FOOTPRINT_PIXELS,
-                Math.round(
-                  request.left
-                  + renderedSize / 2
-                  - MIN_VISIBILITY_FOOTPRINT_PIXELS / 2,
-                ),
-              ))
-              const markerTop = Math.max(0, Math.min(
-                tileSize - MIN_VISIBILITY_FOOTPRINT_PIXELS,
-                Math.round(
-                  request.top
-                  + renderedSize / 2
-                  - MIN_VISIBILITY_FOOTPRINT_PIXELS / 2,
-                ),
-              ))
-              context.fillStyle = visibilityColor
-              context.fillRect(
-                markerLeft,
-                markerTop,
-                MIN_VISIBILITY_FOOTPRINT_PIXELS,
-                MIN_VISIBILITY_FOOTPRINT_PIXELS,
-              )
-            }
-          }, { once: true })
-        } else {
-          // Defensive fallback for environments without Canvas 2D. Normal
-          // browsers take the fixed-canvas path above.
-          image.style.position = 'absolute'
-          image.style.top = `${request.top}px`
-          image.style.left = `${request.left}px`
-          image.style.width = `${tileSize}px`
-          image.style.height = `${tileSize}px`
-          image.style.maxWidth = 'none'
-          image.style.maxHeight = 'none'
-          image.style.transformOrigin = 'top left'
-          if (request.scale !== 1) {
-            if (request.scale > 1) image.style.imageRendering = 'pixelated'
-            image.style.transform = `scale(${request.scale})`
-          }
-        }
-        image.addEventListener('error', () => image.remove(), { once: true })
-        image.src = request.url
-        tile.append(image)
-      }
-      return tile
-    },
-    releaseTile: (tile) => {
-      if (!tile) return
-      releasedTiles.add(tile)
-      tile.replaceChildren()
-    },
-  }
-
-  return { status: 'ready', mapType, message: null }
 }

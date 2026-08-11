@@ -21,10 +21,21 @@ Licence: <https://www.etalab.gouv.fr/licence-ouverte-open-licence/>
 
 Astronomical calculations use `astronomy-engine`, distributed under the MIT License: <https://github.com/cosinekitty/astronomy>.
 
+## Map rendering
+
+- **MapLibre GL JS**, **PMTiles** and **Protomaps Basemaps** are distributed under the BSD 3-Clause License. Their pinned versions and complete licence texts are included through `package-lock.json` and the installed npm packages.
+- Basemap data is derived from **OpenStreetMap**, available under the Open Database License (ODbL): <https://www.openstreetmap.org/copyright>.
+- The keyless bootstrap style and tiles are served by **OpenFreeMap** and remain subject to its terms and attribution requirements: <https://openfreemap.org/>.
+
+## Location search
+
+- The bundled city index is derived from **GeoNames `cities15000`**, distributed under CC BY 4.0. Its attribution and licence reference are also shipped in `public/search/GEONAMES-LICENSE.txt`: <https://www.geonames.org/>.
+- French address results are requested from the **Géoplateforme** geocoding service, and Spanish results from **CartoCiudad**. Their data and services are not redistributed under the project licence and remain subject to their respective terms: <https://geoservices.ign.fr/documentation/services/services-geoplateforme/geocodage>, <https://www.cartociudad.es/>.
+
 ## Open-Meteo
 
 Forecast data is provided by Open-Meteo under CC BY 4.0 and remains subject to the applicable Open-Meteo service terms: <https://open-meteo.com/en/terms>.
 
 ## Google Maps Platform
 
-Google Maps, Places UI Kit, Places API, and Street View content are not redistributed under the project license. Their use is subject to the applicable Google Maps Platform terms, policies, and attribution requirements: <https://developers.google.com/maps/documentation/javascript/policies>.
+Google Street View Embed content is not redistributed under the project license. Its use is subject to the applicable Google Maps Platform terms, policies, and attribution requirements: <https://developers.google.com/maps/documentation/embed/policies>.

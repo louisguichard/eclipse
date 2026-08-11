@@ -1,18 +1,26 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { AlertTriangle, Compass } from 'lucide-react'
+import type {
+  ErrorEvent as MapLibreErrorEvent,
+  GeoJSONSource,
+  Map as MapLibreMap,
+  MapMouseEvent,
+  Marker as MapLibreMarker,
+} from 'maplibre-gl'
 import { buildSunTrajectory } from '../lib/astronomy'
 import { VISIBILITY_DATASETS, VISIBILITY_LAYER_OPACITY } from '../config/visibility'
+import { BASEMAP_PMTILES_URL } from '../config/basemap'
 import { destinationPoint } from '../lib/geometry'
 import { formatLocalTime } from '../lib/format'
-import { googleMapId, hasGoogleMapsApiKey, loadGoogleLibrary } from '../lib/googleMaps'
+import { resolveBasemapStyle } from '../lib/mapLibreBasemap'
+import { createVisibilityRasterDefinition } from '../lib/mapLibreVisibility'
 import {
-  createVisibilityImageMapType,
   knownVisibilityCoverageAtPoint,
   preferredVisibilityDatasetAtPoint,
   visibilityDatasetsForView,
 } from '../lib/visibilityTiles'
 import type { EclipseSnapshot, ObserverLocation } from '../types'
-import type { VisibilityDatasetManifest } from '../types/visibility'
+import type { GeographicBounds, VisibilityDatasetManifest } from '../types/visibility'
 
 type MapViewProps = {
   observer: ObserverLocation
@@ -22,43 +30,60 @@ type MapViewProps = {
   onLocationChange: (location: ObserverLocation) => void
 }
 
-const MAP_STYLES: google.maps.MapTypeStyle[] = [
-  { elementType: 'geometry', stylers: [{ color: '#101a2c' }] },
-  { elementType: 'labels.text.stroke', stylers: [{ color: '#101a2c' }] },
-  { elementType: 'labels.text.fill', stylers: [{ color: '#8492a9' }] },
-  { featureType: 'administrative.locality', elementType: 'labels.text.fill', stylers: [{ color: '#c5ccda' }] },
-  { featureType: 'poi', elementType: 'geometry', stylers: [{ color: '#17253a' }] },
-  { featureType: 'poi.park', elementType: 'geometry', stylers: [{ color: '#18332f' }] },
-  { featureType: 'poi.park', elementType: 'labels.text.fill', stylers: [{ color: '#789b8f' }] },
-  { featureType: 'road', elementType: 'geometry', stylers: [{ color: '#25334a' }] },
-  { featureType: 'road', elementType: 'geometry.stroke', stylers: [{ color: '#152137' }] },
-  { featureType: 'road.highway', elementType: 'geometry', stylers: [{ color: '#344158' }] },
-  { featureType: 'transit', elementType: 'geometry', stylers: [{ color: '#1a2940' }] },
-  { featureType: 'water', elementType: 'geometry', stylers: [{ color: '#071426' }] },
-  { featureType: 'water', elementType: 'labels.text.fill', stylers: [{ color: '#526a86' }] },
-]
+type MapStatus = 'idle' | 'loading' | 'ready' | 'error'
 
-// Keep the line of sight visually separate from the yellow LiDAR visibility
-// layer. The distance is only a graphic aid; reducing it does not alter the
-// calculated solar azimuth.
+const DESKTOP_MAP_MEDIA_QUERY = '(min-width: 861px)'
+const INITIAL_MAP_ZOOM = 15
+const SEARCH_MAP_ZOOM = 16
 const SOLAR_DIRECTION_COLOR = '#ff5a5f'
 const SOLAR_DIRECTION_DISTANCE_METERS = 250
+const SOLAR_TRAJECTORY_DISTANCE_METERS = 820
+const SOLAR_RAY_SOURCE_ID = 'solar-direction-source'
+const SOLAR_RAY_LAYER_ID = 'solar-direction-layer'
+const SOLAR_TRAJECTORY_SOURCE_ID = 'solar-trajectory-source'
+const SOLAR_TRAJECTORY_LAYER_ID = 'solar-trajectory-layer'
 
-function DemoMap({
+type LineData = Parameters<GeoJSONSource['setData']>[0]
+
+function lineData(points: ReadonlyArray<{ lat: number; lng: number }>): LineData {
+  return {
+    type: 'FeatureCollection',
+    features: points.length < 2
+      ? []
+      : [{
+          type: 'Feature',
+          properties: {},
+          geometry: {
+            type: 'LineString',
+            coordinates: points.map(({ lng, lat }) => [lng, lat]),
+          },
+        }],
+  }
+}
+
+function updateLineSource(
+  map: MapLibreMap,
+  sourceId: string,
+  points: ReadonlyArray<{ lat: number; lng: number }>,
+) {
+  const source = map.getSource(sourceId)
+  if (source && 'setData' in source) {
+    const geoJsonSource = source as GeoJSONSource
+    geoJsonSource.setData(lineData(points))
+  }
+}
+
+function MapFallback({
   observer,
   snapshot,
-  loadFailed = false,
   timeZone = null,
-}: Pick<MapViewProps, 'observer' | 'snapshot' | 'timeZone'> & { loadFailed?: boolean }) {
+}: Pick<MapViewProps, 'observer' | 'snapshot' | 'timeZone'>) {
   const rotation = snapshot.sun.azimuth
   return (
-    <div className="demo-map" role="img" aria-label="Aperçu cartographique simulé de Paris">
+    <div className="demo-map" role="img" aria-label="Aperçu cartographique de secours">
       <div className="demo-map__river" />
       {Array.from({ length: 9 }, (_, index) => <i key={`h-${index}`} className={`street street-h street-h-${index}`} />)}
       {Array.from({ length: 8 }, (_, index) => <i key={`v-${index}`} className={`street street-v street-v-${index}`} />)}
-      <span className="demo-map__district district-a">PARIS 15e</span>
-      <span className="demo-map__district district-b">PARIS 7e</span>
-      <span className="demo-map__district district-c">PARIS 16e</span>
       <div className="demo-map__observer" aria-hidden="true"><span /></div>
       {snapshot.circumstances.visible && (
         <div className="demo-map__ray" style={{ transform: `rotate(${rotation}deg)` }}>
@@ -69,9 +94,27 @@ function DemoMap({
         </div>
       )}
       <div className="demo-map__compass"><Compass size={15} /> N</div>
-      <div className="demo-map__notice"><AlertTriangle size={14} /> {loadFailed ? 'Google Maps indisponible' : 'Carte de démonstration · clé requise'}</div>
+      <div className="demo-map__notice">
+        <AlertTriangle size={14} /> Fond de carte indisponible
+      </div>
       <span className="demo-map__location">{observer.label}</span>
     </div>
+  )
+}
+
+function BasemapAttribution() {
+  return (
+    <p className="map-attribution" aria-label="Attribution cartographique">
+      {BASEMAP_PMTILES_URL ? (
+        <a href="https://protomaps.com/" target="_blank" rel="noreferrer">Protomaps</a>
+      ) : (
+        <a href="https://www.openmaptiles.org/" target="_blank" rel="noreferrer">© OpenMapTiles</a>
+      )}
+      <span aria-hidden="true">·</span>
+      <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer">
+        © OpenStreetMap
+      </a>
+    </p>
   )
 }
 
@@ -130,6 +173,57 @@ export function VisibilityLegend({
   )
 }
 
+function geographicViewport(map: MapLibreMap): GeographicBounds {
+  const bounds = map.getBounds()
+  return {
+    north: bounds.getNorth(),
+    south: bounds.getSouth(),
+    east: bounds.getEast(),
+    west: bounds.getWest(),
+  }
+}
+
+function addSolarLayers(map: MapLibreMap) {
+  const emptyLine = lineData([])
+  map.addSource(SOLAR_TRAJECTORY_SOURCE_ID, {
+    type: 'geojson',
+    data: emptyLine,
+  })
+  map.addLayer({
+    id: SOLAR_TRAJECTORY_LAYER_ID,
+    type: 'line',
+    source: SOLAR_TRAJECTORY_SOURCE_ID,
+    layout: {
+      'line-cap': 'round',
+      'line-join': 'round',
+    },
+    paint: {
+      'line-color': '#ff7774',
+      'line-opacity': 0.26,
+      'line-width': 1.25,
+    },
+  })
+
+  map.addSource(SOLAR_RAY_SOURCE_ID, {
+    type: 'geojson',
+    data: emptyLine,
+  })
+  map.addLayer({
+    id: SOLAR_RAY_LAYER_ID,
+    type: 'line',
+    source: SOLAR_RAY_SOURCE_ID,
+    layout: {
+      'line-cap': 'round',
+      'line-join': 'round',
+    },
+    paint: {
+      'line-color': SOLAR_DIRECTION_COLOR,
+      'line-opacity': 0.95,
+      'line-width': 1.5,
+    },
+  })
+}
+
 export function MapView({
   observer,
   snapshot,
@@ -138,20 +232,18 @@ export function MapView({
   onLocationChange,
 }: MapViewProps) {
   const hostRef = useRef<HTMLDivElement>(null)
-  const mapRef = useRef<google.maps.Map | null>(null)
-  const markerRef = useRef<google.maps.Circle | google.maps.marker.AdvancedMarkerElement | null>(null)
-  const rayRef = useRef<google.maps.Polyline | null>(null)
-  const arcRef = useRef<google.maps.Polyline | null>(null)
-  const visibilityMapTypesRef = useRef<Map<string, google.maps.MapType>>(new Map())
-  const activeVisibilityDatasetIdsRef = useRef<string[]>([])
-  const clickListenerRef = useRef<google.maps.MapsEventListener | null>(null)
-  const viewportListenerRef = useRef<google.maps.MapsEventListener | null>(null)
-  const onLocationChangeRef = useRef(onLocationChange)
-  const initialObserverRef = useRef(observer)
+  const mapRef = useRef<MapLibreMap | null>(null)
+  const markerRef = useRef<MapLibreMarker | null>(null)
   const observerRef = useRef(observer)
-  const [status, setStatus] = useState<'loading' | 'ready' | 'error'>(
-    hasGoogleMapsApiKey ? 'loading' : 'ready',
-  )
+  const onLocationChangeRef = useRef(onLocationChange)
+  const visibilityLayerIdsRef = useRef<Map<string, string>>(new Map())
+  const activeVisibilityKeyRef = useRef<string | null>(null)
+  const [shouldInitialize, setShouldInitialize] = useState(active)
+  const [status, setStatus] = useState<MapStatus>('idle')
+
+  observerRef.current = observer
+  onLocationChangeRef.current = onLocationChange
+
   const preferredVisibilityDataset = preferredVisibilityDatasetAtPoint(
     VISIBILITY_DATASETS,
     observer,
@@ -161,177 +253,171 @@ export function MapView({
     observer,
   )
 
-  onLocationChangeRef.current = onLocationChange
-  observerRef.current = observer
-
   const syncVisibilityLayers = useCallback(() => {
     const map = mapRef.current
-    if (!map) return
+    if (!map || visibilityLayerIdsRef.current.size === 0) return
 
-    const googleBounds = map.getBounds()
-    const southWest = googleBounds?.getSouthWest()
-    const northEast = googleBounds?.getNorthEast()
-    const viewport = southWest && northEast
-      ? {
-          north: northEast.lat(),
-          south: southWest.lat(),
-          east: northEast.lng(),
-          west: southWest.lng(),
-        }
-      : null
-    const manifests = visibilityDatasetsForView(
+    const visibleDatasets = visibilityDatasetsForView(
       VISIBILITY_DATASETS,
       observerRef.current,
-      viewport,
+      geographicViewport(map),
       map.getZoom(),
-    ).filter((manifest) => visibilityMapTypesRef.current.has(manifest.id))
-    const nextIds = manifests.map((manifest) => manifest.id)
-    const previousIds = activeVisibilityDatasetIdsRef.current
-    if (
-      nextIds.length === previousIds.length
-      && nextIds.every((id, index) => id === previousIds[index])
-    ) {
-      return
-    }
+    ).filter(({ id }) => visibilityLayerIdsRef.current.has(id))
+    const visibleIds = new Set(visibleDatasets.map(({ id }) => id))
+    const nextKey = visibleDatasets.map(({ id }) => id).join('|')
+    if (nextKey === activeVisibilityKeyRef.current) return
 
-    const overlays = map.overlayMapTypes
-    const ownedMapTypes = new Set(visibilityMapTypesRef.current.values())
-    for (let index = overlays.getLength() - 1; index >= 0; index -= 1) {
-      const overlay = overlays.getAt(index)
-      if (overlay && ownedMapTypes.has(overlay)) overlays.removeAt(index)
+    for (const [datasetId, layerId] of visibilityLayerIdsRef.current) {
+      if (!map.getLayer(layerId)) continue
+      map.setLayoutProperty(
+        layerId,
+        'visibility',
+        visibleIds.has(datasetId) ? 'visible' : 'none',
+      )
     }
-
-    // Google paints later overlay indices above earlier ones. Inserting each
-    // fine-to-coarse entry at zero leaves the first (Paris) at the top index.
-    for (const manifest of manifests) {
-      const mapType = visibilityMapTypesRef.current.get(manifest.id)
-      if (mapType) overlays.insertAt(0, mapType)
-    }
-    activeVisibilityDatasetIdsRef.current = nextIds
+    activeVisibilityKeyRef.current = nextKey
   }, [])
 
+  // `active` means the mobile Carte tab or the expanded desktop card. The
+  // desktop inset is visible even when false, hence the matching media query.
   useEffect(() => {
-    if (!hasGoogleMapsApiKey) return
+    if (shouldInitialize || active) {
+      if (active) setShouldInitialize(true)
+      return undefined
+    }
+    if (typeof window.matchMedia !== 'function') return undefined
+
+    const desktop = window.matchMedia(DESKTOP_MAP_MEDIA_QUERY)
+    const initializeOnDesktop = () => {
+      if (desktop.matches) setShouldInitialize(true)
+    }
+    initializeOnDesktop()
+    desktop.addEventListener('change', initializeOnDesktop)
+    return () => desktop.removeEventListener('change', initializeOnDesktop)
+  }, [active, shouldInitialize])
+
+  useEffect(() => {
+    if (!shouldInitialize) return undefined
+
+    const initializedVisibilityLayerIds = visibilityLayerIdsRef.current
     let cancelled = false
+    let initializedMap: MapLibreMap | null = null
+    let initializedMarker: MapLibreMarker | null = null
+    let handleLoad: (() => void) | null = null
+    let handleClick: ((event: MapMouseEvent) => void) | null = null
+    let handleMoveEnd: (() => void) | null = null
+    let handleError: ((event: MapLibreErrorEvent) => void) | null = null
 
     async function initializeMap() {
+      setStatus('loading')
       try {
-        const [{ Map }, markerLibrary] = await Promise.all([
-          loadGoogleLibrary('maps'),
-          loadGoogleLibrary('marker'),
+        const [maplibre] = await Promise.all([
+          import('maplibre-gl'),
+          import('maplibre-gl/dist/maplibre-gl.css'),
         ])
-        if (cancelled || !hostRef.current) return
+        const style = await resolveBasemapStyle(maplibre)
+        const host = hostRef.current
+        if (cancelled || !host) return
 
-        if (!mapRef.current) {
-          const mapId = googleMapId()
-          mapRef.current = new Map(hostRef.current, {
-            center: initialObserverRef.current,
-            // The inset is intentionally close enough for the 2 m LiDAR
-            // classification to remain legible instead of merging into broad
-            // yellow bands.
-            zoom: 15,
-            mapId,
-            styles: mapId ? undefined : MAP_STYLES,
-            disableDefaultUI: true,
-            zoomControl: false,
-            fullscreenControl: false,
-            clickableIcons: false,
-            gestureHandling: 'greedy',
-            backgroundColor: '#101a2c',
+        const map = new maplibre.Map({
+          container: host,
+          style,
+          center: [observerRef.current.lng, observerRef.current.lat],
+          zoom: INITIAL_MAP_ZOOM,
+          minZoom: 2,
+          maxZoom: 19,
+          // Source attribution is rendered by our compact, always-visible
+          // control below. Disabling MapLibre's aggregate avoids repeating
+          // every registered (including currently hidden) IGN raster source.
+          attributionControl: false,
+          boxZoom: true,
+          doubleClickZoom: true,
+          dragPan: true,
+          dragRotate: false,
+          keyboard: true,
+          pitchWithRotate: false,
+          scrollZoom: true,
+          touchPitch: false,
+          touchZoomRotate: true,
+          fadeDuration: 0,
+        })
+        // Keep pinch-to-zoom while preventing the two-finger rotation gesture.
+        // The map stays north-up, matching the solar direction overlay.
+        map.touchZoomRotate.disableRotation()
+        initializedMap = map
+        mapRef.current = map
+        let baseStyleReady = false
+
+        const markerNode = document.createElement('div')
+        markerNode.className = 'map-observer-marker'
+        markerNode.title = 'Position d’observation'
+        markerNode.setAttribute('aria-label', 'Position d’observation')
+        markerNode.innerHTML = '<span aria-hidden="true"></span>'
+        initializedMarker = new maplibre.Marker({
+          element: markerNode,
+          anchor: 'center',
+        })
+          .setLngLat([observerRef.current.lng, observerRef.current.lat])
+          .addTo(map)
+        markerRef.current = initializedMarker
+
+        handleClick = (event) => {
+          onLocationChangeRef.current({
+            lat: event.lngLat.lat,
+            lng: event.lngLat.lng,
+            label: 'Point sélectionné',
+            source: 'map',
           })
         }
+        handleMoveEnd = syncVisibilityLayers
+        handleError = (event) => {
+          // Missing LiDAR PNGs are deliberately transparent 404s and must not
+          // take down a successfully loaded basemap.
+          if (baseStyleReady || cancelled) return
+          console.error('MapLibre basemap failed to load', event.error)
+          setStatus('error')
+        }
+        handleLoad = () => {
+          if (cancelled) return
+          baseStyleReady = true
 
-        if (!markerRef.current) {
-          const mapId = googleMapId()
-          if (mapId) {
-            const markerNode = document.createElement('div')
-            markerNode.className = 'google-observer-marker'
-            markerNode.innerHTML = '<span></span>'
-            markerRef.current = new markerLibrary.AdvancedMarkerElement({
-              map: mapRef.current,
-              position: initialObserverRef.current,
-              title: 'Position d’observation',
-              content: markerNode,
-            })
-          } else {
-            markerRef.current = new google.maps.Circle({
-              map: mapRef.current,
-              center: initialObserverRef.current,
-              radius: 12,
-              fillColor: '#ffb44a',
-              fillOpacity: 1,
-              strokeColor: '#fff4d6',
-              strokeOpacity: 1,
-              strokeWeight: 2,
-              clickable: false,
-            })
+          const firstSymbolLayerId = map.getStyle().layers.find(
+            ({ type }) => type === 'symbol',
+          )?.id
+          for (const manifest of [...VISIBILITY_DATASETS].reverse()) {
+            const definition = createVisibilityRasterDefinition(
+              manifest,
+              VISIBILITY_LAYER_OPACITY,
+            )
+            if (!definition) continue
+            try {
+              map.addSource(definition.sourceId, definition.source)
+              map.addLayer(definition.layer, firstSymbolLayerId)
+              visibilityLayerIdsRef.current.set(
+                definition.datasetId,
+                definition.layerId,
+              )
+            } catch (error) {
+              console.warn(`Visibility layer unavailable: ${manifest.id}`, error)
+            }
           }
-        }
 
-        rayRef.current ??= new google.maps.Polyline({
-          map: mapRef.current,
-          geodesic: true,
-          strokeColor: SOLAR_DIRECTION_COLOR,
-          strokeOpacity: 0.95,
-          strokeWeight: 1.25,
-          clickable: false,
-          icons: [{
-            icon: {
-              path: google.maps.SymbolPath.FORWARD_CLOSED_ARROW,
-              fillColor: SOLAR_DIRECTION_COLOR,
-              fillOpacity: 1,
-              strokeColor: SOLAR_DIRECTION_COLOR,
-              strokeWeight: 0.6,
-              scale: 1.8,
-            },
-            offset: '100%',
-          }],
-        })
-        arcRef.current ??= new google.maps.Polyline({
-          map: mapRef.current,
-          geodesic: true,
-          strokeColor: '#ff7774',
-          strokeOpacity: 0.26,
-          strokeWeight: 1.25,
-          clickable: false,
-        })
-
-        for (const manifest of VISIBILITY_DATASETS) {
-          if (visibilityMapTypesRef.current.has(manifest.id)) continue
-          const visibilityLayer = createVisibilityImageMapType(
-            {
-              Size: google.maps.Size,
-            },
-            manifest,
-            VISIBILITY_LAYER_OPACITY,
-          )
-          if (visibilityLayer.status === 'ready') {
-            visibilityMapTypesRef.current.set(manifest.id, visibilityLayer.mapType)
-          } else if (visibilityLayer.status === 'error') {
-            console.warn('Visibility layer unavailable', visibilityLayer.message)
+          try {
+            addSolarLayers(map)
+          } catch (error) {
+            console.warn('Solar map layers unavailable', error)
           }
+          activeVisibilityKeyRef.current = null
+          syncVisibilityLayers()
+          setStatus('ready')
         }
 
-        if (!clickListenerRef.current) {
-          clickListenerRef.current = mapRef.current.addListener('click', (event: google.maps.MapMouseEvent) => {
-            const point = event.latLng
-            if (!point) return
-            onLocationChangeRef.current({
-              lat: point.lat(),
-              lng: point.lng(),
-              label: 'Point sélectionné',
-              source: 'map',
-            })
-          })
-        }
-        viewportListenerRef.current ??= mapRef.current.addListener(
-          'idle',
-          syncVisibilityLayers,
-        )
-        syncVisibilityLayers()
-        setStatus('ready')
+        map.on('click', handleClick)
+        map.on('moveend', handleMoveEnd)
+        map.on('error', handleError)
+        map.once('load', handleLoad)
       } catch (error) {
-        console.error('Google Map failed to load', error)
+        console.error('MapLibre failed to initialize', error)
         if (!cancelled) setStatus('error')
       }
     }
@@ -339,28 +425,31 @@ export function MapView({
     void initializeMap()
     return () => {
       cancelled = true
-      clickListenerRef.current?.remove()
-      clickListenerRef.current = null
-      viewportListenerRef.current?.remove()
-      viewportListenerRef.current = null
+      if (initializedMap && handleClick) initializedMap.off('click', handleClick)
+      if (initializedMap && handleMoveEnd) initializedMap.off('moveend', handleMoveEnd)
+      if (initializedMap && handleError) initializedMap.off('error', handleError)
+      if (initializedMap && handleLoad) initializedMap.off('load', handleLoad)
+      initializedMarker?.remove()
+      if (markerRef.current === initializedMarker) markerRef.current = null
+      initializedMap?.remove()
+      if (mapRef.current === initializedMap) mapRef.current = null
+      initializedVisibilityLayerIds.clear()
+      activeVisibilityKeyRef.current = null
     }
-  }, [syncVisibilityLayers])
+  }, [shouldInitialize, syncVisibilityLayers])
 
-  // Layer objects are created once; only their membership in overlayMapTypes
-  // changes as the observer and viewport move between published coverages.
   useEffect(() => {
     if (status !== 'ready') return
     syncVisibilityLayers()
   }, [observer.lat, observer.lng, status, syncVisibilityLayers])
 
-  // Only the ray rotates during playback. Keeping the static marker and the
-  // full contact-to-sunset trajectory out of this effect avoids rebuilding a
-  // 21-point Google Maps polyline on every animation frame.
+  // Playback updates GeoJSON only; it never reloads the style or requests a
+  // new basemap/visibility tile by itself.
   useEffect(() => {
     const map = mapRef.current
     if (!map || status !== 'ready') return
     if (!snapshot.circumstances.visible) {
-      rayRef.current?.setPath([])
+      updateLineSource(map, SOLAR_RAY_SOURCE_ID, [])
       return
     }
     const endpoint = destinationPoint(
@@ -368,18 +457,14 @@ export function MapView({
       SOLAR_DIRECTION_DISTANCE_METERS,
       snapshot.sun.azimuth,
     )
-    rayRef.current?.setPath([observer, endpoint])
+    updateLineSource(map, SOLAR_RAY_SOURCE_ID, [observer, endpoint])
   }, [observer, snapshot.circumstances.visible, snapshot.sun.azimuth, status])
 
   useEffect(() => {
     const map = mapRef.current
     if (!map || status !== 'ready') return
-    if (markerRef.current instanceof google.maps.Circle) {
-      markerRef.current.setCenter(observer)
-    } else if (markerRef.current) {
-      markerRef.current.position = observer
-    }
-  }, [observer, status])
+    markerRef.current?.setLngLat([observer.lng, observer.lat])
+  }, [observer.lat, observer.lng, status])
 
   const trajectoryBeginTime = snapshot.circumstances.begin.time.getTime()
   const trajectoryEndTime = snapshot.circumstances.end.time.getTime()
@@ -388,20 +473,25 @@ export function MapView({
     const map = mapRef.current
     if (!map || status !== 'ready') return
     if (!snapshot.circumstances.visible) {
-      arcRef.current?.setPath([])
+      updateLineSource(map, SOLAR_TRAJECTORY_SOURCE_ID, [])
       return
     }
+
     const begin = new Date(trajectoryBeginTime)
     const circumstancesEnd = new Date(trajectoryEndTime)
-    const sunset = sunsetTime == null ? null : new Date(sunsetTime)
+    const sunset = sunsetTime === null ? null : new Date(sunsetTime)
     const trajectoryEnd = sunset && sunset > begin ? sunset : circumstancesEnd
     const trajectory = buildSunTrajectory(
       observer,
       begin,
       trajectoryEnd,
       20,
-    ).map((point) => destinationPoint(observer, 820, point.azimuth))
-    arcRef.current?.setPath(trajectory)
+    ).map((point) => destinationPoint(
+      observer,
+      SOLAR_TRAJECTORY_DISTANCE_METERS,
+      point.azimuth,
+    ))
+    updateLineSource(map, SOLAR_TRAJECTORY_SOURCE_ID, trajectory)
   }, [
     observer,
     snapshot.circumstances.visible,
@@ -414,34 +504,27 @@ export function MapView({
   useEffect(() => {
     const map = mapRef.current
     if (!map || status !== 'ready') return
-
-    // `active` only describes the selected mobile tab. On desktop both panels
-    // are visible, so location changes must move the map even when that flag is
-    // false (the default mobile tab is Street View).
-    map.panTo({ lat: observer.lat, lng: observer.lng })
-    if (observer.source === 'search' || observer.source === 'geolocation') {
-      map.setZoom(Math.max(map.getZoom() ?? 14, 16))
-    }
+    map.easeTo({
+      center: [observer.lng, observer.lat],
+      zoom: observer.source === 'search' || observer.source === 'geolocation'
+        ? Math.max(map.getZoom(), SEARCH_MAP_ZOOM)
+        : map.getZoom(),
+      duration: 350,
+      essential: true,
+    })
   }, [observer.lat, observer.lng, observer.source, status])
 
   useEffect(() => {
     const map = mapRef.current
     const host = hostRef.current
     if (!map || !host || status !== 'ready') return undefined
-
-    // `active` is also the desktop expansion signal. Waiting for the next
-    // frame lets the new panel geometry settle before Google recalculates its
-    // tiles, and running on both boolean transitions keeps collapse just as
-    // sharp as expansion without recreating the Map instance.
     const frame = window.requestAnimationFrame(() => {
       const bounds = host.getBoundingClientRect()
       if (bounds.width <= 0 || bounds.height <= 0) return
-      google.maps.event.trigger(map, 'resize')
-      map.panTo({ lat: observer.lat, lng: observer.lng })
+      map.resize()
     })
-
     return () => window.cancelAnimationFrame(frame)
-  }, [active, observer.lat, observer.lng, status])
+  }, [active, status])
 
   useEffect(() => {
     const map = mapRef.current
@@ -450,46 +533,40 @@ export function MapView({
       return undefined
     }
 
-    // Container queries and viewport changes can resize the inset without
-    // changing `active` (for example when returning to desktop from the Carte
-    // mobile tab). Observe the actual host so every layout transition keeps
-    // the same map instance correctly tiled and centred.
     let frame: number | null = null
     const sizeObserver = new ResizeObserver(() => {
       if (frame !== null) window.cancelAnimationFrame(frame)
       frame = window.requestAnimationFrame(() => {
         frame = null
         const bounds = host.getBoundingClientRect()
-        if (bounds.width <= 0 || bounds.height <= 0) return
-        google.maps.event.trigger(map, 'resize')
-        map.panTo({ lat: observer.lat, lng: observer.lng })
+        if (bounds.width > 0 && bounds.height > 0) map.resize()
       })
     })
     sizeObserver.observe(host)
-
     return () => {
       sizeObserver.disconnect()
       if (frame !== null) window.cancelAnimationFrame(frame)
     }
-  }, [observer.lat, observer.lng, status])
-
-  if (!hasGoogleMapsApiKey || status === 'error') {
-    return (
-      <DemoMap
-        observer={observer}
-        snapshot={snapshot}
-        timeZone={timeZone}
-        loadFailed={status === 'error'}
-      />
-    )
-  }
+  }, [status])
 
   return (
     <div className="map-stage">
-      <div ref={hostRef} className="map-canvas" aria-label="Carte Google interactive" />
+      <div
+        ref={hostRef}
+        className="map-canvas"
+        role="region"
+        aria-label="Carte interactive MapLibre"
+        aria-busy={status === 'loading'}
+      />
       {status === 'loading' && (
-        <div className="panel-loading" role="status"><span className="orb-loader" /> Chargement de la carte…</div>
+        <div className="panel-loading" role="status">
+          <span className="orb-loader" /> Chargement de la carte…
+        </div>
       )}
+      {status === 'error' && (
+        <MapFallback observer={observer} snapshot={snapshot} timeZone={timeZone} />
+      )}
+      <BasemapAttribution />
       <VisibilityLegend
         preferredVisibilityDataset={preferredVisibilityDataset}
         knownVisibilityDataset={knownVisibilityDataset}
