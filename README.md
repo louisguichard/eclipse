@@ -62,6 +62,7 @@ VITE_BASEMAP_STYLE_URL=https://tiles.openfreemap.org/styles/dark
 VITE_BASEMAP_PMTILES_URL=
 VITE_VISIBILITY_TILE_BASE_URL=https://cdn.example.fr/eclipse/visibility
 VITE_CLOUDFLARE_WEB_ANALYTICS_TOKEN=votre_token_de_site_optionnel
+VITE_MAINTENANCE_BANNER_ENABLED=false
 ```
 
 `VITE_BASEMAP_STYLE_URL` configure le style MapLibre. Le style OpenFreeMap par
@@ -72,6 +73,11 @@ et la disponibilité, fournissez une archive Protomaps compatible via
 `VITE_VISIBILITY_TILE_BASE_URL` est facultatif pour la seule couverture parisienne incluse sous `/visibility/paris-2026-max-v1/`. Il doit être défini pour charger les jeux régionaux publiés sur R2. Indiquez le dossier parent de tous les dossiers versionnés, sans ajouter un nom de version à la variable. Cette URL n’est pas un secret.
 
 `VITE_CLOUDFLARE_WEB_ANALYTICS_TOKEN` est facultatif et public. Lorsqu'il est renseigné, le beacon officiel Cloudflare Web Analytics est chargé uniquement dans le build de production. Il n'est jamais chargé avec `npm run dev`, ni lorsqu'aucun token n'est configuré.
+
+`VITE_MAINTENANCE_BANNER_ENABLED` affiche le bandeau de maintenance uniquement
+lorsque sa valeur est exactement `true` (casse et espaces ignorés). Utilisez
+`false` ou supprimez la variable pour le masquer, puis redéployez : comme tous
+les flags `VITE_*`, sa valeur est intégrée au bundle lors du build.
 
 Les variables `VITE_*` sont injectées dans le bundle client : elles sont
 publiques. Ne placez donc jamais de secret dans une variable préfixée `VITE_`.
@@ -158,7 +164,7 @@ Pour reproduire exactement une installation CI, utilisez `npm ci` plutôt que `n
 1. importez le dépôt dans Vercel ;
 2. laissez **Root Directory** à la racine du dépôt (`.`) ;
 3. gardez le preset **Vite**, la commande `npm run build` et le dossier de sortie `dist` ;
-4. configurez, si utilisés, `VITE_BASEMAP_PMTILES_URL`, `VITE_VISIBILITY_TILE_BASE_URL` et `VITE_CLOUDFLARE_WEB_ANALYTICS_TOKEN` dans **Project Settings → Environment Variables** ;
+4. configurez, si utilisés, `VITE_BASEMAP_PMTILES_URL`, `VITE_VISIBILITY_TILE_BASE_URL`, `VITE_CLOUDFLARE_WEB_ANALYTICS_TOKEN` et `VITE_MAINTENANCE_BANNER_ENABLED` dans **Project Settings → Environment Variables** ;
 5. choisissez explicitement les environnements Production/Preview/Development voulus ;
 6. déployez, puis testez depuis le domaine final le chargement CORS du fond, de la recherche et des tuiles Street View ;
 7. redéployez après toute modification d’une variable `VITE_*`, car elle est incorporée à la compilation.

@@ -27,6 +27,7 @@ import { useObserverLocation } from './hooks/useObserverLocation'
 import { useWeather } from './hooks/useWeather'
 import { useTimelinePlayback } from './hooks/useTimelinePlayback'
 import { TIMELINE } from './config/eclipse'
+import { MAINTENANCE_BANNER_ENABLED } from './config/features'
 import type { LatLng, MobileView, PanoramaState } from './types'
 
 const INITIAL_PANORAMA: PanoramaState = {
@@ -163,7 +164,7 @@ function App() {
 
   return (
     <div className="app-shell" data-mobile-view={mobileView}>
-      <MaintenanceBanner />
+      {MAINTENANCE_BANNER_ENABLED && <MaintenanceBanner />}
 
       {!online && (
         <div className="offline-banner" role="status">

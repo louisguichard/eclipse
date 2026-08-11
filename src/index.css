@@ -65,7 +65,7 @@
   --glass: blur(22px) saturate(1.5);
 
   --ease: cubic-bezier(0.22, 0.8, 0.28, 1);
-  --maintenance-banner-h: 38px;
+  --maintenance-banner-h: 0px;
 
   font-family: var(--font-ui);
   color: var(--ink);
@@ -192,7 +192,7 @@ input:focus-visible {
   padding: 9px 48px;
   border-bottom: 1px solid rgb(76 38 0 / 0.24);
   color: #321900;
-  background: linear-gradient(100deg, #ef9420 0%, #ffb75e 48%, #ffd38c 100%);
+  background: #f5b942;
   box-shadow: 0 16px 42px -28px rgb(255 159 34 / 0.9);
   animation: maintenance-banner-in 680ms var(--ease);
 }
