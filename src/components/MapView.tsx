@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { AlertTriangle, Compass } from 'lucide-react'
+import mapLibreWorkerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url'
 import type {
   ErrorEvent as MapLibreErrorEvent,
   GeoJSONSource,
@@ -305,6 +306,10 @@ export function MapView({
           import('maplibre-gl'),
           import('maplibre-gl/dist/maplibre-gl.css'),
         ])
+        // MapLibre resolves its default worker relative to its own module URL.
+        // After Vite code-splitting that sibling file does not exist, so bundle
+        // the worker explicitly and point MapLibre at the generated asset.
+        maplibre.setWorkerUrl(mapLibreWorkerUrl)
         const style = await resolveBasemapStyle(maplibre)
         const host = hostRef.current
         if (cancelled || !host) return

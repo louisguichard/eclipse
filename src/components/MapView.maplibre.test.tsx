@@ -23,6 +23,7 @@ const mocks = vi.hoisted(() => ({
     remove: ReturnType<typeof vi.fn>
   }>,
   resolveBasemapStyle: vi.fn(async () => 'https://example.test/dark-style.json'),
+  setWorkerUrl: vi.fn(),
 }))
 
 vi.mock('../lib/mapLibreBasemap', () => ({
@@ -144,7 +145,12 @@ vi.mock('maplibre-gl', () => {
     }
   }
 
-  return { Map: MockMap, Marker: MockMarker, addProtocol: vi.fn() }
+  return {
+    Map: MockMap,
+    Marker: MockMarker,
+    addProtocol: vi.fn(),
+    setWorkerUrl: mocks.setWorkerUrl,
+  }
 })
 
 const OBSERVER: ObserverLocation = {
@@ -214,6 +220,7 @@ describe('MapView MapLibre lifecycle', () => {
       <MapView observer={OBSERVER} snapshot={SNAPSHOT} active onLocationChange={vi.fn()} />,
     )
     await waitFor(() => expect(mocks.maps).toHaveLength(1))
+    expect(mocks.setWorkerUrl).toHaveBeenCalledOnce()
     expect(mocks.maps[0].options.style).toBe('https://example.test/dark-style.json')
     expect(mocks.maps[0].options.attributionControl).toEqual({ compact: true })
     expect(document.querySelector('.maplibregl-compact-show')).toBeNull()
