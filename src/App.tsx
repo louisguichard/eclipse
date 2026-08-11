@@ -16,12 +16,12 @@ import {
 import { EclipseInfo } from './components/EclipseInfo'
 import { LegalModal } from './components/LegalModal'
 import { LocationSearch } from './components/LocationSearch'
+import { MaintenanceBanner } from './components/MaintenanceBanner'
 import { MapView } from './components/MapView'
 import { MobileDialTimeline } from './components/MobileDialTimeline'
 import { StreetView } from './components/StreetView'
 import { Timeline } from './components/Timeline'
 import { formatLocalDateTime } from './lib/format'
-import { hasGoogleMapsApiKey } from './lib/googleMaps'
 import { useEclipse } from './hooks/useEclipse'
 import { useObserverLocation } from './hooks/useObserverLocation'
 import { useWeather } from './hooks/useWeather'
@@ -30,7 +30,7 @@ import { TIMELINE } from './config/eclipse'
 import type { LatLng, MobileView, PanoramaState } from './types'
 
 const INITIAL_PANORAMA: PanoramaState = {
-  status: hasGoogleMapsApiKey ? 'idle' : 'demo',
+  status: 'idle',
   position: null,
   distanceMeters: null,
   radiusMeters: null,
@@ -163,6 +163,8 @@ function App() {
 
   return (
     <div className="app-shell" data-mobile-view={mobileView}>
+      <MaintenanceBanner />
+
       {!online && (
         <div className="offline-banner" role="status">
           <WifiOff size={13} /> Hors connexion
@@ -253,7 +255,7 @@ function App() {
           <div className="mobile-title-menu__credits">
             <span className="mobile-title-menu__source-title">Sources</span>
             <span>Astronomie · Astronomy Engine · NASA</span>
-            <span>Carte · Google Maps · Street View</span>
+            <span>Carte · OpenFreeMap / OpenStreetMap · Vue Streetlevel</span>
             <span>Météo · Open-Meteo</span>
             <span>Relief · IGN LiDAR HD</span>
             <span>

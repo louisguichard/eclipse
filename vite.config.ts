@@ -5,11 +5,18 @@ import { VitePWA } from 'vite-plugin-pwa'
 
 // https://vite.dev/config/
 export default defineConfig({
+  // MapLibre crée son worker depuis `import.meta.url`. L'exclure de
+  // l'optimisation évite une URL de worker invalide en développement.
+  optimizeDeps: {
+    exclude: ['maplibre-gl'],
+  },
   plugins: [
     react(),
     tailwindcss(),
     VitePWA({
-      registerType: 'prompt',
+      // The eclipse rollout is time-sensitive: an already installed PWA must
+      // activate the new build without waiting for every old tab to close.
+      registerType: 'autoUpdate',
       injectRegister: 'auto',
       includeAssets: ['favicon.svg'],
       manifest: {
@@ -28,12 +35,35 @@ export default defineConfig({
         ],
       },
       workbox: {
+        clientsClaim: true,
+        skipWaiting: true,
         globPatterns: ['**/*.{js,css,html,svg,woff2}'],
+        // La carte est chargée à la demande : ne pas précacher ses gros chunks
+        // sur les mobiles qui n'ouvrent jamais l'onglet Carte.
+        globIgnores: [
+          'assets/maplibre-gl-*',
+          'assets/pmtiles-*.js',
+          'assets/protomaps-basemap-*.js',
+        ],
         navigateFallback: '/index.html',
         runtimeCaching: [],
       },
     }),
   ],
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          if (id.includes('/node_modules/pmtiles/') || id.includes('/node_modules/fflate/')) {
+            return 'pmtiles'
+          }
+          if (id.includes('/node_modules/@protomaps/basemaps/')) {
+            return 'protomaps-basemap'
+          }
+        },
+      },
+    },
+  },
   test: {
     environment: 'node',
     globals: true,

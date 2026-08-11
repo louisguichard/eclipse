@@ -19,7 +19,19 @@ export type TileCoordinate = {
 }
 
 export type VisibilityMapTypeConstructors = {
-  Size: typeof google.maps.Size
+  Size: new (width: number, height: number) => { width: number; height: number }
+}
+
+type VisibilityImageMapType = {
+  alt: string
+  name: string
+  minZoom: number
+  maxZoom: number
+  projection: null
+  radius: number
+  tileSize: { width: number; height: number }
+  getTile: (coordinate: TileCoordinate, zoom: number, ownerDocument: Document) => Element
+  releaseTile: (tile: Element | null) => void
 }
 
 export type VisibilityTileRequest = {
@@ -34,7 +46,7 @@ export type VisibilityTileRequest = {
 export type VisibilityImageMapTypeResult =
   | {
       status: 'ready'
-      mapType: google.maps.MapType
+      mapType: VisibilityImageMapType
       message: null
     }
   | {
@@ -382,7 +394,7 @@ export function createVisibilityImageMapType(
   const visibilityColor = manifest.legend.find(({ id }) => id === 'clear')?.color
     ?? '#ffc933'
   const releasedTiles = new WeakSet<Element>()
-  const mapType: google.maps.MapType = {
+  const mapType: VisibilityImageMapType = {
     alt: manifest.disclaimer,
     name: manifest.label,
     minZoom: minimumDisplayZoom,

@@ -367,7 +367,7 @@ describe('ImageMapType factory', () => {
     }
     const result = createVisibilityImageMapType(
       {
-        Size: FakeSize as unknown as typeof google.maps.Size,
+        Size: FakeSize,
       },
       READY_MANIFEST,
       1.8,
@@ -381,7 +381,7 @@ describe('ImageMapType factory', () => {
     expect((mapType.tileSize as unknown as FakeSize).width).toBe(256)
 
     const tile = mapType.getTile(
-      { x: 8299, y: 5636 } as google.maps.Point,
+      { x: 8299, y: 5636 },
       14,
       document,
     ) as HTMLDivElement
@@ -416,7 +416,7 @@ describe('ImageMapType factory', () => {
       }
     }
     const result = createVisibilityImageMapType(
-      { Size: FakeSize as unknown as typeof google.maps.Size },
+      { Size: FakeSize },
       COARSE_MANIFEST,
       0.92,
     )
@@ -424,7 +424,7 @@ describe('ImageMapType factory', () => {
 
     const displayedCoordinate = latLngToTileCoordinate(48.86, 2.36, 16)
     const tile = result.mapType.getTile(
-      displayedCoordinate as google.maps.Point,
+      displayedCoordinate,
       16,
       document,
     ) as HTMLDivElement
@@ -460,7 +460,7 @@ describe('ImageMapType factory', () => {
       }
     }
     const result = createVisibilityImageMapType(
-      { Size: FakeSize as unknown as typeof google.maps.Size },
+      { Size: FakeSize },
       COARSE_MANIFEST,
       0.84,
     )
@@ -472,7 +472,7 @@ describe('ImageMapType factory', () => {
       VISIBILITY_MAX_DISPLAY_ZOOM,
     )
     const tile = result.mapType.getTile(
-      displayedCoordinate as google.maps.Point,
+      displayedCoordinate,
       VISIBILITY_MAX_DISPLAY_ZOOM,
       document,
     ) as HTMLDivElement
@@ -501,7 +501,7 @@ describe('ImageMapType factory', () => {
       }
     }
     const result = createVisibilityImageMapType(
-      { Size: FakeSize as unknown as typeof google.maps.Size },
+      { Size: FakeSize },
       READY_MANIFEST,
       0.84,
     )
@@ -513,7 +513,7 @@ describe('ImageMapType factory', () => {
       VISIBILITY_MIN_DISPLAY_ZOOM,
     )
     const tile = result.mapType.getTile(
-      displayedCoordinate as google.maps.Point,
+      displayedCoordinate,
       VISIBILITY_MIN_DISPLAY_ZOOM,
       document,
     ) as HTMLDivElement
@@ -556,14 +556,14 @@ describe('ImageMapType factory', () => {
       }
     }
     const result = createVisibilityImageMapType(
-      { Size: FakeSize as unknown as typeof google.maps.Size },
+      { Size: FakeSize },
       READY_MANIFEST,
       0.92,
     )
     if (result.status !== 'ready') throw new Error('Expected a ready map type')
 
     const tile = result.mapType.getTile(
-      { x: 8299, y: 5636 } as google.maps.Point,
+      { x: 8299, y: 5636 },
       14,
       document,
     ) as HTMLDivElement
@@ -588,7 +588,7 @@ describe('ImageMapType factory', () => {
       }
     }
     const result = createVisibilityImageMapType(
-      { Size: FakeSize as unknown as typeof google.maps.Size },
+      { Size: FakeSize },
       READY_MANIFEST,
       0.84,
     )
@@ -600,7 +600,7 @@ describe('ImageMapType factory', () => {
       VISIBILITY_MIN_DISPLAY_ZOOM,
     )
     const tile = result.mapType.getTile(
-      displayedCoordinate as google.maps.Point,
+      displayedCoordinate,
       VISIBILITY_MIN_DISPLAY_ZOOM,
       document,
     ) as HTMLDivElement
@@ -624,7 +624,15 @@ describe('ImageMapType factory', () => {
     }
     const result = createVisibilityImageMapType(
       {
-        Size: class {} as unknown as typeof google.maps.Size,
+        Size: class {
+          width: number
+          height: number
+
+          constructor(width: number, height: number) {
+            this.width = width
+            this.height = height
+          }
+        },
       },
       unavailable,
       0.5,

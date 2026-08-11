@@ -21,7 +21,7 @@ export class ErrorBoundary extends Component<Props, State> {
         <main className="fatal-error">
           <AlertTriangle size={28} />
           <h1>La simulation n’a pas pu démarrer.</h1>
-          <p>Rechargez la page. Si le problème persiste, vérifiez votre connexion et la configuration Google Maps.</p>
+          <p>Rechargez la page. Si le problème persiste, vérifiez votre connexion et la disponibilité des services de carte, de recherche et de panorama.</p>
           <button type="button" onClick={() => window.location.reload()}>Recharger</button>
         </main>
       )

@@ -1,17 +1,22 @@
 /** @vitest-environment jsdom */
 
-import { act, cleanup, render, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { LocationSearch } from './LocationSearch'
+import type { SearchResult } from '../lib/search'
 import type { ObserverLocation } from '../types'
+import { LocationSearch } from './LocationSearch'
 
-const googleMapsMocks = vi.hoisted(() => ({
-  loadGoogleLibrary: vi.fn(),
+const searchMocks = vi.hoisted(() => ({
+  resolveSearchResult: vi.fn(),
+  searchLocations: vi.fn(),
 }))
 
-vi.mock('../lib/googleMaps', () => ({
-  hasGoogleMapsApiKey: true,
-  loadGoogleLibrary: googleMapsMocks.loadGoogleLibrary,
+vi.mock('../lib/search', () => ({
+  isAbortError: (error: unknown) => error instanceof DOMException && error.name === 'AbortError',
+  MIN_SEARCH_CHARACTERS: 3,
+  SEARCH_DEBOUNCE_MS: 320,
+  resolveSearchResult: searchMocks.resolveSearchResult,
+  searchLocations: searchMocks.searchLocations,
 }))
 
 const OBSERVER: ObserverLocation = {
@@ -21,153 +26,160 @@ const OBSERVER: ObserverLocation = {
   source: 'default',
 }
 
-/** A Places `Place` whose fields only exist once `fetchFields` has resolved. */
-function placeStub(overrides: Record<string, unknown> = {}) {
-  const resolved = {
-    id: 'place-louvre',
-    location: { lat: () => 48.860611, lng: () => 2.337644 },
-    ...overrides,
-  }
-  const place: Record<string, unknown> = { id: resolved.id }
-  let settle: (() => void) | null = null
-  place.fetchFields = vi.fn(
-    () =>
-      new Promise<void>((resolve) => {
-        settle = () => {
-          Object.assign(place, resolved)
-          resolve()
-        }
-      }),
-  )
-  return { place, resolve: () => settle?.() }
-}
+const RESULTS: SearchResult[] = [
+  {
+    id: 'fr:paris',
+    label: 'Paris',
+    detail: 'France · Géoplateforme',
+    provider: 'geoplateforme',
+    lat: 48.859,
+    lng: 2.347,
+    rank: 0,
+  },
+  {
+    id: 'world:2643743',
+    label: 'London, Royaume-Uni',
+    detail: 'Ville · GeoNames',
+    provider: 'geonames',
+    lat: 51.50853,
+    lng: -0.12574,
+    rank: 1,
+  },
+]
 
 describe('LocationSearch', () => {
-  let autocompleteElement: HTMLElement | null
-  let autocompleteOptions: Record<string, unknown> | null
-
   beforeEach(() => {
-    autocompleteElement = null
-    autocompleteOptions = null
-    googleMapsMocks.loadGoogleLibrary.mockResolvedValue({
-      BasicPlaceAutocompleteElement: function BasicPlaceAutocompleteElement(
-        options: Record<string, unknown>,
-      ) {
-        autocompleteOptions = options
-        autocompleteElement = document.createElement('gmp-basic-place-autocomplete')
-        return autocompleteElement
-      },
-    })
+    vi.useFakeTimers()
+    searchMocks.searchLocations.mockResolvedValue(RESULTS)
+    searchMocks.resolveSearchResult.mockImplementation(async (result: SearchResult) => ({
+      lat: result.lat,
+      lng: result.lng,
+      label: result.label,
+      source: 'search',
+    }))
   })
 
   afterEach(() => {
     cleanup()
+    vi.runOnlyPendingTimers()
+    vi.useRealTimers()
     vi.clearAllMocks()
   })
 
-  async function mountAndSelect(
-    onSelect: (location: ObserverLocation) => void,
-    stub: ReturnType<typeof placeStub>,
-  ) {
-    const view = render(<LocationSearch observer={OBSERVER} onSelect={onSelect} />)
-    await waitFor(() => expect(autocompleteElement).not.toBeNull())
-    await waitFor(() => expect(view.container.querySelector('.search-spinner')).toBeNull())
+  it('waits for three characters and debounces the free providers', async () => {
+    const view = render(<LocationSearch observer={OBSERVER} onSelect={vi.fn()} />)
+    const input = view.getByRole('combobox')
 
-    const selectEvent = new Event('gmp-select')
-    Object.defineProperty(selectEvent, 'place', { value: stub.place })
-    act(() => {
-      autocompleteElement?.dispatchEvent(selectEvent)
-    })
-    return view
-  }
+    fireEvent.change(input, { target: { value: 'Pa' } })
+    await act(async () => vi.advanceTimersByTimeAsync(500))
+    expect(searchMocks.searchLocations).not.toHaveBeenCalled()
+    expect(view.getByText('Saisissez encore 1 caractère.')).toBeTruthy()
 
-  it('keeps the French interface without restricting suggestions to France', async () => {
-    render(<LocationSearch observer={OBSERVER} onSelect={vi.fn()} />)
-    await waitFor(() => expect(autocompleteOptions).not.toBeNull())
+    fireEvent.change(input, { target: { value: 'Paris' } })
+    await act(async () => vi.advanceTimersByTimeAsync(319))
+    expect(searchMocks.searchLocations).not.toHaveBeenCalled()
+    await act(async () => vi.advanceTimersByTimeAsync(1))
 
-    expect(autocompleteOptions).toMatchObject({
-      requestedLanguage: 'fr',
-      description: 'Rechercher un lieu d’observation dans le monde',
-    })
-    expect(autocompleteOptions).not.toHaveProperty('includedRegionCodes')
-    expect(autocompleteOptions).not.toHaveProperty('requestedRegion')
+    expect(searchMocks.searchLocations).toHaveBeenCalledOnce()
+    expect(searchMocks.searchLocations.mock.calls[0]?.[0]).toBe('Paris')
+    expect(view.getAllByRole('option')).toHaveLength(2)
   })
 
-  it('resolves the selected place using only EEA-permitted map fields', async () => {
-    const onSelect = vi.fn()
-    const stub = placeStub()
-    const { container } = await mountAndSelect(onSelect, stub)
-
-    expect(stub.place.fetchFields).toHaveBeenCalledWith({
-      fields: ['location'],
-    })
-    expect(container.querySelector('.search-spinner')).not.toBeNull()
-
-    await act(async () => {
-      stub.resolve()
-    })
-
-    await waitFor(() => {
-      expect(onSelect).toHaveBeenCalledWith({
-        lat: 48.860611,
-        lng: 2.337644,
-        label: 'Adresse sélectionnée',
-        source: 'search',
-        placeId: 'place-louvre',
-      })
-    })
-    expect(container.querySelector('.search-spinner')).toBeNull()
-  })
-
-  it('leaves no panel behind — the details host is gone for good', async () => {
-    const stub = placeStub()
-    const { container } = await mountAndSelect(vi.fn(), stub)
-    await act(async () => {
-      stub.resolve()
-    })
-    expect(container.querySelector('.place-details-host')).toBeNull()
-  })
-
-  it('names the missing Google Cloud product when Place Details is denied', async () => {
-    // The failure that looks like a bug in the app: suggestions come from
-    // Places UI Kit, so they appear, and only the details call is refused.
-    const stub = placeStub()
-    stub.place.fetchFields = vi.fn(() =>
-      Promise.reject(
-        new Error(
-          'PLACES_GET_PLACE: PERMISSION_DENIED: Places API (New) has not been used in project 1 before or it is disabled.',
-        ),
-      ),
+  it('aborts an obsolete request as soon as the query changes', async () => {
+    let firstSignal: AbortSignal | undefined
+    searchMocks.searchLocations.mockImplementationOnce(
+      (_query: string, options: { signal?: AbortSignal }) => {
+        firstSignal = options.signal
+        return new Promise(() => {})
+      },
     )
-    vi.spyOn(console, 'error').mockImplementation(() => {})
-    const { container } = await mountAndSelect(vi.fn(), stub)
+    const view = render(<LocationSearch observer={OBSERVER} onSelect={vi.fn()} />)
+    const input = view.getByRole('combobox')
 
-    await waitFor(() => {
-      expect(container.querySelector('.search-error')?.textContent).toContain('Places API (New)')
-    })
+    fireEvent.change(input, { target: { value: 'Paris' } })
+    await act(async () => vi.advanceTimersByTimeAsync(320))
+    expect(firstSignal?.aborted).toBe(false)
+
+    fireEvent.change(input, { target: { value: 'Madrid' } })
+    expect(firstSignal?.aborted).toBe(true)
   })
 
-  it('falls back to the generic message for an ordinary failure', async () => {
-    const stub = placeStub()
-    stub.place.fetchFields = vi.fn(() => Promise.reject(new Error('NETWORK_ERROR')))
-    vi.spyOn(console, 'error').mockImplementation(() => {})
-    const { container } = await mountAndSelect(vi.fn(), stub)
+  it('reports a provider timeout instead of spinning forever', async () => {
+    searchMocks.searchLocations.mockImplementationOnce(() => new Promise(() => {}))
+    const view = render(<LocationSearch observer={OBSERVER} onSelect={vi.fn()} />)
+    fireEvent.change(view.getByRole('combobox'), { target: { value: 'Paris' } })
 
-    await waitFor(() => {
-      expect(container.querySelector('.search-error')?.textContent).toContain('Cliquez sur la carte')
-    })
+    await act(async () => vi.advanceTimersByTimeAsync(320 + 8_000))
+
+    expect(view.getByText('Recherche momentanément indisponible.')).toBeTruthy()
+    expect(view.getByRole('combobox').getAttribute('aria-busy')).toBe('false')
   })
 
-  it('surfaces an error when the place carries no location', async () => {
+  it('exposes a listbox and supports arrow/enter selection', async () => {
     const onSelect = vi.fn()
-    const stub = placeStub({ location: undefined })
-    const { container } = await mountAndSelect(onSelect, stub)
+    const view = render(<LocationSearch observer={OBSERVER} onSelect={onSelect} />)
+    const input = view.getByRole('combobox')
+    fireEvent.change(input, { target: { value: 'ville' } })
+    await act(async () => vi.advanceTimersByTimeAsync(320))
 
+    expect(input.getAttribute('aria-expanded')).toBe('true')
+    expect(view.getByRole('listbox')).toBeTruthy()
+    fireEvent.keyDown(input, { key: 'ArrowDown' })
     await act(async () => {
-      stub.resolve()
+      fireEvent.keyDown(input, { key: 'Enter' })
+      await Promise.resolve()
+      await Promise.resolve()
     })
 
-    expect(onSelect).not.toHaveBeenCalled()
-    await waitFor(() => expect(container.querySelector('.search-error')).not.toBeNull())
+    expect(searchMocks.resolveSearchResult).toHaveBeenCalledWith(
+      RESULTS[1],
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
+    )
+    expect(onSelect).toHaveBeenCalledWith({
+      lat: 51.50853,
+      lng: -0.12574,
+      label: 'London, Royaume-Uni',
+      source: 'search',
+    })
+    expect(input.getAttribute('aria-expanded')).toBe('false')
+  })
+
+  it('closes suggestions with Escape and preserves the query', async () => {
+    const view = render(<LocationSearch observer={OBSERVER} onSelect={vi.fn()} />)
+    const input = view.getByRole('combobox') as HTMLInputElement
+    fireEvent.change(input, { target: { value: 'Paris' } })
+    await act(async () => vi.advanceTimersByTimeAsync(320))
+
+    fireEvent.keyDown(input, { key: 'Escape' })
+    expect(input.value).toBe('Paris')
+    expect(input.getAttribute('aria-expanded')).toBe('false')
+  })
+
+  it('does not leave the resolver busy when the selected label equals the query', async () => {
+    searchMocks.searchLocations.mockResolvedValue([RESULTS[0]])
+    const view = render(<LocationSearch observer={OBSERVER} onSelect={vi.fn()} />)
+    const input = view.getByRole('combobox')
+    fireEvent.change(input, { target: { value: 'Paris' } })
+    await act(async () => vi.advanceTimersByTimeAsync(320))
+    await act(async () => {
+      fireEvent.keyDown(input, { key: 'Enter' })
+      await Promise.resolve()
+    })
+    expect(view.container.querySelector('.search-spinner')).toBeNull()
+
+    fireEvent.change(input, { target: { value: 'Madrid' } })
+    await act(async () => vi.advanceTimersByTimeAsync(320))
+    expect(searchMocks.searchLocations).toHaveBeenCalledTimes(2)
+  })
+
+  it('focuses the native input when the mobile search opens', async () => {
+    vi.spyOn(window, 'requestAnimationFrame').mockImplementation((callback) => {
+      callback(0)
+      return 1
+    })
+    const view = render(
+      <LocationSearch observer={OBSERVER} onSelect={vi.fn()} autoFocus />,
+    )
+    expect(document.activeElement).toBe(view.getByRole('combobox'))
   })
 })

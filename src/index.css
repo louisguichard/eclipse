@@ -65,6 +65,7 @@
   --glass: blur(22px) saturate(1.5);
 
   --ease: cubic-bezier(0.22, 0.8, 0.28, 1);
+  --maintenance-banner-h: 38px;
 
   font-family: var(--font-ui);
   color: var(--ink);
@@ -178,10 +179,51 @@ input:focus-visible {
   background: var(--night-950);
 }
 
+.maintenance-banner {
+  position: absolute;
+  z-index: 300;
+  top: 0;
+  right: 0;
+  left: 0;
+  display: flex;
+  min-height: 38px;
+  align-items: center;
+  justify-content: center;
+  padding: 9px 48px;
+  border-bottom: 1px solid rgb(76 38 0 / 0.24);
+  color: #321900;
+  background: linear-gradient(100deg, #ef9420 0%, #ffb75e 48%, #ffd38c 100%);
+  box-shadow: 0 16px 42px -28px rgb(255 159 34 / 0.9);
+  animation: maintenance-banner-in 680ms var(--ease);
+}
+
+.maintenance-banner p {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 650;
+  line-height: 1.4;
+  text-align: center;
+}
+
+@keyframes maintenance-banner-in {
+  from { opacity: 0; transform: translateY(-100%); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@media (max-width: 600px) {
+  .maintenance-banner {
+    padding: 8px 14px;
+  }
+
+  .maintenance-banner p {
+    font-size: 12px;
+  }
+}
+
 .offline-banner {
   position: absolute;
   z-index: 200;
-  top: 0;
+  top: var(--maintenance-banner-h);
   right: 0;
   left: 0;
   display: flex;
@@ -202,7 +244,7 @@ input:focus-visible {
 .app-header {
   position: absolute;
   z-index: 90;
-  top: 0;
+  top: var(--maintenance-banner-h);
   right: 0;
   left: 0;
   display: grid;
@@ -378,94 +420,138 @@ input:focus-visible {
   filter: drop-shadow(0 1px 5px rgb(0 0 0 / 0.28));
 }
 
-.location-search--fallback input {
+.location-search__input {
   width: 100%;
   min-width: 0;
   border: 0;
   outline: 0;
-  color: var(--ink-faint);
+  color: var(--ink);
   background: transparent;
   font-size: 13px;
+  font-family: inherit;
+  appearance: none;
 }
 
-.api-chip {
-  flex: 0 0 auto;
-  padding: 3px 8px;
-  border-radius: var(--pill);
-  color: var(--ember);
-  background: rgb(255 176 78 / 0.12);
-  font-size: 8.5px;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.1em;
-}
-
-.places-host {
-  min-width: 0;
-  height: 100%;
-  flex: 1;
-}
-
-/* Keep the Google field visually integrated with our own neutral search pill.
-   The colour variables also apply to the suggestions surface. */
-.places-autocomplete {
-  width: 100%;
-  height: 100%;
-  /* The host paints an opaque near-black rectangle of its own, which showed
-     through as a hard-edged block inside the rounded field. */
-  background: transparent !important;
-  border: 0 !important;
-  color-scheme: dark;
-  --gmp-mat-color-surface: #0b1220;
-  --gmp-mat-color-on-surface: var(--ink);
-  --gmp-mat-color-on-surface-variant: rgb(241 245 250 / 0.58);
-  --gmp-mat-color-primary: var(--ink);
-  --gmp-mat-color-outline-decorative: rgb(226 236 250 / 0.1);
-  --gmp-mat-color-neutral-10: rgb(255 255 255 / 0.06);
-  --gmp-mat-font-family: var(--font-ui);
-  --gmp-button-border-radius: var(--r-sm);
-}
-
-/* BasicPlaceAutocompleteElement exposes these two parts in the current Places
-   UI Kit. Its default focus ring is Google blue and rectangular; remove only
-   that inner decoration and retain the accessible, rounded focus indication on
-   `.location-search:focus-within`. Suggestions and keyboard navigation remain
-   owned by the Google component. */
-.places-autocomplete::part(input) {
+.location-search__input:focus-visible {
   outline: none;
-  color: inherit;
-  background: transparent;
-  box-shadow: none;
-  caret-color: var(--ink);
+  outline-offset: 0;
 }
 
-.places-autocomplete::part(focus-ring) {
-  border: 0;
-  outline: none;
-  box-shadow: none;
+.location-search__input::placeholder {
+  color: var(--ink-faint);
 }
 
-.places-autocomplete:focus,
-.places-autocomplete:focus-visible,
-.places-autocomplete:focus-within {
-  outline: none;
+.location-search__input::-webkit-search-cancel-button {
+  cursor: pointer;
+  opacity: 0.55;
+  filter: invert(1);
 }
 
-.search-error {
+.location-search__popup {
   position: absolute;
   top: calc(100% + 8px);
+  right: 0;
   left: 0;
+  overflow: hidden;
+  border: 1px solid var(--glass-stroke-strong);
+  border-radius: 18px;
+  background: rgb(8 13 23 / 0.97);
+  box-shadow: 0 22px 50px -24px rgb(0 0 0 / 0.95);
+  backdrop-filter: blur(22px);
+  -webkit-backdrop-filter: blur(22px);
+}
+
+.location-search__results {
+  max-height: min(48vh, 360px);
+  overflow-y: auto;
+  margin: 0;
+  padding: 6px;
+  list-style: none;
+  overscroll-behavior: contain;
+}
+
+.location-search__option {
   display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 7px 11px;
-  border: 1px solid rgb(255 176 78 / 0.2);
-  border-radius: var(--r-sm);
-  color: #ffd99b;
-  background: rgb(44 28 10 / 0.94);
-  box-shadow: var(--shadow-soft);
-  backdrop-filter: var(--glass);
+  width: 100%;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 11px;
+  border: 0;
+  border-radius: 12px;
+  color: var(--ink-soft);
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+
+.location-search__option:hover,
+.location-search__option[aria-selected='true'] {
+  color: var(--ink);
+  background: rgb(255 255 255 / 0.08);
+}
+
+.location-search__option > svg {
+  flex: 0 0 auto;
+  margin-top: 2px;
+  color: var(--ember);
+}
+
+.location-search__option > span {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.location-search__option strong,
+.location-search__option small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.location-search__option strong {
+  font-size: 12.5px;
+  font-weight: 650;
+}
+
+.location-search__option small {
+  color: var(--ink-faint);
   font-size: 10.5px;
+}
+
+.location-search__notice {
+  display: flex;
+  min-height: 52px;
+  align-items: center;
+  gap: 7px;
+  margin: 0;
+  padding: 12px 16px;
+  color: var(--ink-mute);
+  font-size: 11.5px;
+}
+
+.location-search__notice--error {
+  color: #ffd99b;
+}
+
+.location-search__sources {
+  margin: 0;
+  padding: 7px 12px 8px;
+  border-top: 1px solid rgb(255 255 255 / 0.07);
+  color: var(--ink-faint);
+  font-size: 8.5px;
+  text-align: right;
+}
+
+.location-search__sources a {
+  color: inherit;
+  text-decoration: none;
+}
+
+.location-search__sources a:hover,
+.location-search__sources a:focus-visible {
+  color: var(--ink-soft);
+  text-decoration: underline;
 }
 
 .search-spinner {
@@ -481,7 +567,7 @@ input:focus-visible {
 .permission-message {
   position: absolute;
   z-index: 160;
-  top: 78px;
+  top: calc(78px + var(--maintenance-banner-h));
   left: 50%;
   width: min(90vw, 560px);
   padding: 10px 15px;
@@ -905,6 +991,22 @@ input:focus-visible {
 .scene-note--warn { color: #ffd79b; border-color: rgb(255 176 78 / 0.28); }
 .scene-note--eclipse { top: 22px; }
 
+.streetlevel-attribution {
+  position: absolute;
+  z-index: 19;
+  right: 8px;
+  bottom: 8px;
+  max-width: min(62%, 320px);
+  padding: 3px 7px;
+  border-radius: 4px;
+  color: rgb(255 255 255 / 0.92);
+  background: rgb(0 0 0 / 0.68);
+  pointer-events: none;
+  font-size: 9px;
+  line-height: 1.25;
+  text-align: right;
+}
+
 .scene-state {
   position: absolute;
   z-index: 12;
@@ -1233,6 +1335,15 @@ input:focus-visible {
   inset: 0;
 }
 
+/* MapLibre adds `.maplibregl-map { position: relative; }` to its host after
+   this stylesheet has loaded. Keep our canvas pinned to the card instead of
+   letting that rule collapse the absolutely positioned host to zero height. */
+.map-stage > .map-canvas {
+  position: absolute;
+  width: 100%;
+  height: 100%;
+}
+
 .panel-loading {
   position: absolute;
   inset: 0;
@@ -1334,18 +1445,19 @@ input:focus-visible {
   text-transform: uppercase;
 }
 
-.google-observer-marker {
+.map-observer-marker {
   display: grid;
   width: 16px;
   height: 16px;
   place-items: center;
+  pointer-events: none;
   border: 1.5px solid #fff2d4;
   border-radius: 50%;
   background: var(--ember);
   box-shadow: 0 0 0 4px rgb(255 176 78 / 0.14), 0 4px 12px rgb(0 0 0 / 0.32);
 }
 
-.google-observer-marker span {
+.map-observer-marker span {
   width: 3px;
   height: 3px;
   border-radius: 50%;
@@ -2010,7 +2122,9 @@ input:focus-visible {
   .location-search-wrap { order: 3; width: 100%; }
   .location-search { height: 40px; }
 
-  .permission-message { top: calc(152px + env(safe-area-inset-top)); }
+  .permission-message {
+    top: calc(152px + env(safe-area-inset-top) + var(--maintenance-banner-h));
+  }
 
   /* A real tab bar under the thumb rather than a control floating over the
      scene: two destinations, an icon each, and a lit rule that slides to the
@@ -2474,7 +2588,7 @@ input:focus-visible {
   .location-search-wrap {
     position: fixed;
     z-index: 21;
-    top: calc(41px + env(safe-area-inset-top));
+    top: calc(41px + env(safe-area-inset-top) + var(--maintenance-banner-h));
     right: var(--mobile-header-inline);
     display: block;
     width: 44px;
@@ -2512,7 +2626,7 @@ input:focus-visible {
   .app-header.is-search-open .desktop-geolocation {
     position: fixed;
     z-index: 23;
-    top: calc(41px + env(safe-area-inset-top));
+    top: calc(41px + env(safe-area-inset-top) + var(--maintenance-banner-h));
     left: var(--mobile-header-inline);
     display: grid;
     width: 44px;
@@ -2542,11 +2656,11 @@ input:focus-visible {
   .mobile-title-menu {
     position: fixed;
     z-index: 22;
-    top: calc(110px + env(safe-area-inset-top));
+    top: calc(110px + env(safe-area-inset-top) + var(--maintenance-banner-h));
     left: 20px;
     display: none;
     width: 236px;
-    max-height: calc(100dvh - 122px - env(safe-area-inset-top));
+    max-height: calc(100dvh - 122px - env(safe-area-inset-top) - var(--maintenance-banner-h));
     overflow-y: auto;
     overscroll-behavior: contain;
     padding: 8px;
@@ -2620,7 +2734,7 @@ input:focus-visible {
 
   .permission-message {
     z-index: 24;
-    top: calc(112px + env(safe-area-inset-top));
+    top: calc(112px + env(safe-area-inset-top) + var(--maintenance-banner-h));
   }
 
   .workspace {
@@ -3150,16 +3264,16 @@ input:focus-visible {
 
   .location-search-wrap,
   .app-header.is-search-open .location-search-wrap {
-    top: calc(7px + env(safe-area-inset-top));
+    top: calc(7px + env(safe-area-inset-top) + var(--maintenance-banner-h));
   }
 
   .app-header.is-search-open .desktop-geolocation {
-    top: calc(7px + env(safe-area-inset-top));
+    top: calc(7px + env(safe-area-inset-top) + var(--maintenance-banner-h));
   }
 
   .mobile-title-menu {
-    top: calc(70px + env(safe-area-inset-top));
-    max-height: calc(100dvh - 82px - env(safe-area-inset-top));
+    top: calc(70px + env(safe-area-inset-top) + var(--maintenance-banner-h));
+    max-height: calc(100dvh - 82px - env(safe-area-inset-top) - var(--maintenance-banner-h));
   }
 
   .workspace {
@@ -3384,7 +3498,7 @@ input:focus-visible {
   .mobile-title-menu {
     position: fixed;
     z-index: 96;
-    top: clamp(82px, 10vh, 98px);
+    top: calc(clamp(82px, 10vh, 98px) + var(--maintenance-banner-h));
     left: var(--desk-gutter);
     display: none;
     width: 236px;
@@ -3827,14 +3941,19 @@ input:focus-visible {
     display: none;
   }
 
+  /* Keep Streetlevel's navigation above the three desktop HUD cards. */
+  .street-nav {
+    bottom: 43%;
+  }
+
   .street-nav__step {
-    opacity: 0;
-    pointer-events: none;
+    opacity: 0.68;
+    pointer-events: auto;
   }
 
   .street-scene:hover .street-nav__step,
   .street-nav:focus-within .street-nav__step {
-    opacity: 0.68;
+    opacity: 1;
     pointer-events: auto;
   }
 

@@ -44,7 +44,6 @@ const snapshot = {
   },
 } as EclipseSnapshot
 
-vi.mock('./lib/googleMaps', () => ({ hasGoogleMapsApiKey: false }))
 vi.mock('./hooks/useObserverLocation', () => ({
   useObserverLocation: () => ({
     location: { lat: 48.8566, lng: 2.3522, label: 'Paris', source: 'default' },

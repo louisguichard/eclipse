@@ -3,156 +3,126 @@
 import { act, cleanup, fireEvent, render } from '@testing-library/react'
 import { createElement } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { STREET_VIEW } from '../config/eclipse'
 import type { EclipseSnapshot, ObserverLocation } from '../types'
-import { findNearestPanorama, useStreetView } from './useStreetView'
+import {
+  headingToViewerYaw,
+  horizontalFovToStreetZoom,
+  useStreetView,
+  viewerYawToHeading,
+} from './useStreetView'
 import type { UseStreetViewResult } from './useStreetView'
 
-const googleMapsMocks = vi.hoisted(() => ({
-  loadGoogleLibrary: vi.fn(),
-}))
-
-vi.mock('../lib/googleMaps', () => ({
-  hasGoogleMapsApiKey: true,
-  loadGoogleLibrary: googleMapsMocks.loadGoogleLibrary,
-}))
-
-const SOURCE = {
-  DEFAULT: 'default',
-  GOOGLE: 'google',
-  OUTDOOR: 'outdoor',
-} as const
-
-function responseAt(lat: number, lng: number): google.maps.StreetViewResponse {
-  return {
-    data: {
-      location: {
-        pano: `pano-${lat}-${lng}`,
-        latLng: {
-          lat: () => lat,
-          lng: () => lng,
-        },
-      },
-    },
-  } as unknown as google.maps.StreetViewResponse
+type ViewerPosition = { yaw: number; pitch: number }
+type ViewerListener = () => void
+type FakeViewerShape = {
+  destroy: ReturnType<typeof vi.fn>
+  panoramaOptions: Record<string, unknown> | null
+  rotate: ReturnType<typeof vi.fn>
+  state: { hFov: number }
+  emitCamera: (position: ViewerPosition, horizontalFov: number) => void
 }
 
-function lookupInstances(getPanorama: ReturnType<typeof vi.fn>) {
-  return {
-    library: {
-      StreetViewPreference: { NEAREST: 'nearest' },
-      StreetViewSource: SOURCE,
-    },
-    panorama: {},
-    service: { getPanorama },
-  } as unknown as Parameters<typeof findNearestPanorama>[0]
-}
+const streetlevelMocks = vi.hoisted(() => ({
+  findNearestPanorama: vi.fn(),
+  loadPanoramaImage: vi.fn(),
+}))
 
-describe('findNearestPanorama', () => {
-  it('restricts every lookup to official Google outdoor panoramas', async () => {
-    const getPanorama = vi.fn().mockResolvedValue(responseAt(48.8737, 2.2959))
+const viewerMocks = vi.hoisted(() => ({
+  instances: [] as FakeViewerShape[],
+}))
 
-    const result = await findNearestPanorama(
-      lookupInstances(getPanorama),
-      { lat: 48.8737, lng: 2.2959 },
-      () => true,
-    )
+vi.mock('../lib/streetlevel', () => ({
+  findNearestPanorama: streetlevelMocks.findNearestPanorama,
+  loadPanoramaImage: streetlevelMocks.loadPanoramaImage,
+}))
 
-    expect(result?.pano).toBe('pano-48.8737-2.2959')
-    expect(getPanorama).toHaveBeenCalledOnce()
-    expect(getPanorama).toHaveBeenCalledWith(expect.objectContaining({
-      preference: 'nearest',
-      sources: ['google', 'outdoor'],
-    }))
-  })
+vi.mock('@photo-sphere-viewer/core', () => {
+  class FakeViewer {
+    private listeners = new Map<string, Set<ViewerListener>>()
+    private position: ViewerPosition = { yaw: 0, pitch: 0 }
+    panoramaOptions: Record<string, unknown> | null = null
+    state = { hFov: 90 }
+    dataHelper = {
+      hFovToVFov: (value: number) => value,
+      fovToZoomLevel: (value: number) => 100 - value,
+    }
+    destroy = vi.fn()
+    autoSize = vi.fn()
+    addEventListener = vi.fn((name: string, listener: ViewerListener) => {
+      const listeners = this.listeners.get(name) ?? new Set<ViewerListener>()
+      listeners.add(listener)
+      this.listeners.set(name, listeners)
+    })
+    getPosition = vi.fn(() => this.position)
+    rotate = vi.fn((position: ViewerPosition) => {
+      this.position = position
+      this.dispatch('position-updated')
+    })
+    zoom = vi.fn((level: number) => {
+      this.state.hFov = 100 - level
+      this.dispatch('zoom-updated')
+    })
+    setPanorama = vi.fn(async (_url: string, options: Record<string, unknown>) => {
+      this.panoramaOptions = options
+      const position = options.position as ViewerPosition
+      this.position = position
+      this.state.hFov = 100 - Number(options.zoom)
+      this.dispatch('position-updated')
+      this.dispatch('zoom-updated')
+      return true
+    })
 
-  it('widens the radius without falling back to the default source', async () => {
-    const getPanorama = vi.fn().mockRejectedValue('ZERO_RESULTS')
+    constructor() {
+      viewerMocks.instances.push(this)
+    }
 
-    const result = await findNearestPanorama(
-      lookupInstances(getPanorama),
-      { lat: 48.8741, lng: 2.2964 },
-      () => true,
-    )
+    emitCamera(position: ViewerPosition, horizontalFov: number) {
+      this.position = position
+      this.state.hFov = horizontalFov
+      this.dispatch('position-updated')
+      this.dispatch('zoom-updated')
+    }
 
-    expect(result).toBeNull()
-    expect(getPanorama).toHaveBeenCalledTimes(STREET_VIEW.searchRadiiMeters.length)
-    expect(getPanorama.mock.calls.map(([request]) => request.radius)).toEqual(
-      STREET_VIEW.searchRadiiMeters,
-    )
-    expect(getPanorama.mock.calls.every(([request]) =>
-      request.sources.join(',') === 'google,outdoor')).toBe(true)
-  })
-})
-
-type Listener = () => void
-
-class FakeStreetViewPanorama {
-  private listeners = new Map<string, Set<Listener>>()
-  private pano = ''
-  private pov = { heading: 0, pitch: 0 }
-  private position = { lat: () => 48.9, lng: () => 2.3 }
-  private zoom: number = STREET_VIEW.zoom
-
-  addListener = vi.fn((eventName: string, listener: Listener) => {
-    const listeners = this.listeners.get(eventName) ?? new Set<Listener>()
-    listeners.add(listener)
-    this.listeners.set(eventName, listeners)
-    return { remove: () => listeners.delete(listener) }
-  })
-
-  getLinks = vi.fn(() => [])
-  getPano = vi.fn(() => this.pano)
-  getPosition = vi.fn(() => this.position)
-  getPov = vi.fn(() => this.pov)
-  getZoom = vi.fn(() => this.zoom)
-  setPano = vi.fn((pano: string) => { this.pano = pano })
-  setPov = vi.fn((pov: { heading: number; pitch: number }) => { this.pov = pov })
-  setVisible = vi.fn()
-  setZoom = vi.fn((zoom: number) => { this.zoom = zoom })
-
-  changeCamera(heading: number, pitch: number, zoom: number) {
-    this.pov = { heading, pitch }
-    this.zoom = zoom
-    for (const eventName of ['pov_changed', 'zoom_changed']) {
-      for (const listener of this.listeners.get(eventName) ?? []) listener()
+    private dispatch(name: string) {
+      for (const listener of this.listeners.get(name) ?? []) listener()
     }
   }
-}
 
-class FakeStreetViewService {
-  getPanorama = vi.fn().mockResolvedValue(responseAt(48.9, 2.3))
-}
-
-const fakePanoramas: FakeStreetViewPanorama[] = []
-
-function streetViewLibrary() {
-  return {
-    StreetViewPanorama: class extends FakeStreetViewPanorama {
-      constructor() {
-        super()
-        fakePanoramas.push(this)
-      }
-    },
-    StreetViewService: FakeStreetViewService,
-    StreetViewPreference: { NEAREST: 'nearest' },
-    StreetViewSource: SOURCE,
-  } as unknown as google.maps.StreetViewLibrary
-}
+  return { Viewer: FakeViewer }
+})
 
 const OBSERVER: ObserverLocation = {
-  lat: 48.9,
-  lng: 2.3,
-  label: 'Test',
+  lat: 48.8566,
+  lng: 2.3522,
+  label: 'Paris',
   source: 'search',
 }
 
-function snapshotAt(isoDate: string, azimuth: number, altitude: number): EclipseSnapshot {
-  const date = new Date(isoDate)
+const PANORAMA = {
+  id: 'pano-current',
+  position: { lat: 48.85661, lng: 2.35221 },
+  heading: 190,
+  pitchCorrection: -0.4,
+  rollCorrection: -0.1,
+  tileSize: { width: 512, height: 512 },
+  imageSizes: [{ width: 416, height: 208 }, { width: 832, height: 416 }],
+  links: [{
+    pano: 'pano-next',
+    heading: 42,
+    position: { lat: 48.8567, lng: 2.3523 },
+    panoramaHeading: 192,
+    pitchCorrection: 0.2,
+    rollCorrection: 0.1,
+  }],
+  copyright: '© 2026 Google',
+  source: 'launch',
+}
+
+function snapshotAt(azimuth: number, altitude: number): EclipseSnapshot {
   return {
-    date,
+    date: new Date('2026-08-12T18:17:00.000Z'),
     sun: { azimuth, altitude },
-    moon: { azimuth: azimuth + 0.1, altitude: altitude + 0.1 },
+    moon: { azimuth, altitude },
     sunAngularRadius: 0.263,
     moonAngularRadius: 0.272,
     centerSeparation: 0.1,
@@ -176,25 +146,59 @@ let latestStreetView: UseStreetViewResult | null = null
 let animationFrames: FrameRequestCallback[] = []
 
 function flushAnimationFrames() {
-  const callbacks = animationFrames.splice(0)
-  for (const callback of callbacks) callback(performance.now())
+  const frames = animationFrames.splice(0)
+  for (const frame of frames) frame(performance.now())
 }
 
-function StreetViewHarness({ snapshot }: { snapshot: EclipseSnapshot }) {
-  latestStreetView = useStreetView(OBSERVER, snapshot, true)
+function StreetViewHarness({
+  snapshot,
+  onMove,
+}: {
+  snapshot: EclipseSnapshot
+  onMove?: (position: { lat: number; lng: number }) => void
+}) {
+  latestStreetView = useStreetView(OBSERVER, snapshot, true, onMove)
   return createElement('div', {
     'data-testid': 'panorama',
     ref: latestStreetView.containerRef,
   })
 }
 
-describe('useStreetView camera ownership', () => {
+async function finishLookup() {
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(221)
+    await Promise.resolve()
+    await Promise.resolve()
+  })
+  act(flushAnimationFrames)
+}
+
+describe('Streetlevel camera conversion', () => {
+  it('aligns an image-relative yaw with true compass north', () => {
+    const yaw = headingToViewerYaw(280, 190)
+    expect(yaw).toBeCloseTo(Math.PI / 2, 10)
+    expect(viewerYawToHeading(yaw, 190)).toBeCloseTo(280, 10)
+  })
+
+  it('preserves the existing Street View zoom/FOV relation', () => {
+    expect(horizontalFovToStreetZoom(90)).toBeCloseTo(1, 10)
+    expect(horizontalFovToStreetZoom(53.130102)).toBeCloseTo(2, 6)
+  })
+})
+
+describe('useStreetView with the browser Streetlevel provider', () => {
   beforeEach(() => {
     vi.useFakeTimers()
-    fakePanoramas.length = 0
+    viewerMocks.instances.length = 0
     animationFrames = []
     latestStreetView = null
-    googleMapsMocks.loadGoogleLibrary.mockResolvedValue(streetViewLibrary())
+    streetlevelMocks.findNearestPanorama.mockResolvedValue(PANORAMA)
+    streetlevelMocks.loadPanoramaImage.mockResolvedValue({
+      url: 'blob:panorama',
+      width: 3328,
+      height: 1664,
+      zoom: 3,
+    })
     vi.spyOn(window, 'requestAnimationFrame').mockImplementation((callback) => {
       animationFrames.push(callback)
       return animationFrames.length
@@ -208,77 +212,68 @@ describe('useStreetView camera ownership', () => {
     vi.runOnlyPendingTimers()
     vi.useRealTimers()
     vi.restoreAllMocks()
-    googleMapsMocks.loadGoogleLibrary.mockReset()
+    streetlevelMocks.findNearestPanorama.mockReset()
+    streetlevelMocks.loadPanoramaImage.mockReset()
   })
 
-  it('keeps a user camera stable during playback and lets recenter resume Sun following', async () => {
-    const first = snapshotAt('2026-08-12T18:17:00.000Z', 284, 8)
-    const second = snapshotAt('2026-08-12T18:18:00.000Z', 284.2, 7.8)
-    const third = snapshotAt('2026-08-12T18:19:00.000Z', 284.4, 7.6)
-    const view = render(createElement(StreetViewHarness, { snapshot: first }))
+  it('loads, attributes and points the panorama at the Sun without an API key', async () => {
+    render(createElement(StreetViewHarness, { snapshot: snapshotAt(284, 8) }))
+    await finishLookup()
 
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(221)
-    })
-
-    const panorama = fakePanoramas[0]
-    expect(panorama).toBeDefined()
+    const viewer = viewerMocks.instances[0]
+    expect(viewer).toBeDefined()
     expect(latestStreetView?.panoramaState.status).toBe('ready')
-    expect(panorama.setPov).toHaveBeenCalledWith({ heading: 284, pitch: 8 })
-    expect(panorama.setZoom).toHaveBeenCalledWith(STREET_VIEW.zoom)
+    expect(latestStreetView?.attribution).toBe('© 2026 Google')
+    expect(latestStreetView?.links).toEqual([
+      { pano: 'pano-next', heading: 42, description: 'Avancer' },
+    ])
+    const position = viewer.panoramaOptions?.position as ViewerPosition
+    expect(viewerYawToHeading(position.yaw, PANORAMA.heading)).toBeCloseTo(284, 10)
+    expect(position.pitch).toBeCloseTo(8 * Math.PI / 180, 10)
+    expect(viewer.panoramaOptions?.sphereCorrection).toEqual({
+      tilt: expect.closeTo(-0.4 * Math.PI / 180, 10),
+      roll: expect.closeTo(-0.1 * Math.PI / 180, 10),
+    })
+  })
 
-    panorama.setPov.mockClear()
-    panorama.setZoom.mockClear()
+  it('respects a user camera during playback, then recenters on demand', async () => {
+    const view = render(createElement(StreetViewHarness, { snapshot: snapshotAt(284, 8) }))
+    await finishLookup()
+    const viewer = viewerMocks.instances[0]
+
     fireEvent.pointerDown(view.getByTestId('panorama'))
-    view.rerender(createElement(StreetViewHarness, { snapshot: second }))
-
-    expect(panorama.setPov).not.toHaveBeenCalled()
-    expect(panorama.setZoom).not.toHaveBeenCalled()
+    viewer.rotate.mockClear()
+    view.rerender(createElement(StreetViewHarness, { snapshot: snapshotAt(286, 7) }))
+    expect(viewer.rotate).not.toHaveBeenCalled()
 
     act(() => latestStreetView?.recenter())
-    expect(panorama.setPov).toHaveBeenCalledWith({
-      heading: expect.closeTo(284.2, 10),
-      pitch: 7.8,
+    expect(viewer.rotate).toHaveBeenCalledWith({
+      yaw: expect.closeTo(headingToViewerYaw(286, PANORAMA.heading), 10),
+      pitch: expect.closeTo(7 * Math.PI / 180, 10),
     })
-    expect(panorama.setZoom).toHaveBeenCalledWith(STREET_VIEW.zoom)
-
-    panorama.setPov.mockClear()
-    panorama.setZoom.mockClear()
-    view.rerender(createElement(StreetViewHarness, { snapshot: third }))
-
-    expect(panorama.setPov).toHaveBeenCalledWith({
-      heading: expect.closeTo(284.4, 10),
-      pitch: 7.6,
-    })
-    expect(panorama.setZoom).not.toHaveBeenCalled()
   })
 
-  it('tracks the latest fractional zoom camera without overriding it', async () => {
-    const snapshot = snapshotAt('2026-08-12T18:17:00.000Z', 284, 8)
-    const view = render(createElement(StreetViewHarness, { snapshot }))
+  it('promotes a neighboring panorama position back to the application', async () => {
+    const onMove = vi.fn()
+    render(createElement(StreetViewHarness, { snapshot: snapshotAt(284, 8), onMove }))
+    await finishLookup()
 
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(221)
-    })
-
-    const panorama = fakePanoramas[0]
-    fireEvent.wheel(view.getByTestId('panorama'))
-    panorama.setPov.mockClear()
-    panorama.setZoom.mockClear()
-
-    panorama.changeCamera(283.8, 8.4, 1.4)
-    panorama.changeCamera(283.2, 9.1, 1.7)
-    panorama.changeCamera(282.6, 9.8, 2.2)
-
-    act(flushAnimationFrames)
-
-    expect(latestStreetView?.camera).toEqual({
-      heading: 282.6,
-      pitch: 9.8,
-      zoom: 2.2,
-    })
-    expect(panorama.setPov).not.toHaveBeenCalled()
-    expect(panorama.setZoom).not.toHaveBeenCalled()
+    act(() => latestStreetView?.moveTo('pano-next'))
+    expect(onMove).toHaveBeenCalledWith(PANORAMA.links[0]?.position)
+    expect(latestStreetView?.panoramaState.status).toBe('loading')
   })
 
+  it('maps viewer rotation and fractional FOV back to the overlay camera', async () => {
+    render(createElement(StreetViewHarness, { snapshot: snapshotAt(284, 8) }))
+    await finishLookup()
+    const viewer = viewerMocks.instances[0]
+
+    act(() => {
+      viewer.emitCamera({ yaw: Math.PI / 2, pitch: 0.2 }, 53.130102)
+      flushAnimationFrames()
+    })
+    expect(latestStreetView?.camera.heading).toBeCloseTo(280, 10)
+    expect(latestStreetView?.camera.pitch).toBeCloseTo(0.2 * 180 / Math.PI, 10)
+    expect(latestStreetView?.camera.zoom).toBeCloseTo(2, 6)
+  })
 })

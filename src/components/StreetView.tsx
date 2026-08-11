@@ -195,7 +195,7 @@ function DemoBackdrop({ filter }: { filter: string }) {
       <div className="demo-street-card absolute left-3 top-3 max-w-[11rem] rounded-2xl border border-white/10 bg-slate-950/55 p-2.5 text-left text-white shadow-xl backdrop-blur-xl sm:left-5 sm:top-5 sm:max-w-[16rem] sm:p-3">
         <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-amber-300">Mode aperçu</p>
         <p className="mt-1 text-[10px] leading-relaxed text-slate-200 sm:text-xs">
-          Ajoutez <code className="font-mono text-[11px] text-white">VITE_GOOGLE_MAPS_API_KEY</code> pour remplacer ce décor par Street View.
+          Le panorama réel est momentanément indisponible. La direction du Soleil reste calculée.
         </p>
       </div>
     </div>
@@ -247,6 +247,7 @@ export function StreetView({
   debug = false,
 }: StreetViewProps) {
   const {
+    attribution,
     camera,
     centered,
     containerRef,
@@ -302,7 +303,7 @@ export function StreetView({
         <div
           ref={containerRef}
           className="street-scene__panorama"
-          aria-label="Panorama Google Street View"
+          aria-label="Panorama Streetlevel issu de Google Street View"
           style={{
             visibility: demo ? 'hidden' : 'visible',
           }}
@@ -360,6 +361,12 @@ export function StreetView({
           <div className={`scene-note ${confidence.className}`}>
             <MapPin aria-hidden="true" size={12} />
             {confidence.label}
+          </div>
+        )}
+
+        {ready && attribution && (
+          <div className="streetlevel-attribution" aria-label="Source du panorama">
+            {attribution}
           </div>
         )}
 
