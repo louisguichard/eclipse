@@ -1,6 +1,6 @@
 /** @vitest-environment jsdom */
 
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import '@testing-library/jest-dom/vitest'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { TimelinePlaybackController } from './hooks/useTimelinePlayback'
@@ -190,10 +190,13 @@ describe('mobile view routing', () => {
   it('keeps sharing in the title menu with an explicit author label', () => {
     render(<App />)
     const menuItems = screen.getAllByRole('menuitem', { hidden: true })
-    expect(menuItems.map((item) => item.textContent?.trim())).toEqual([
-      'Partager',
+    // The copy items carry both their label and their confirmation, so the
+    // order is checked on the accessible names rather than on text content.
+    expect(menuItems.map((item) => item.getAttribute('aria-label') ?? item.textContent?.trim())).toEqual([
+      'Partager — copier le lien',
+      'Contact — copier hello@louisguichard.fr',
       'Code source',
-      'Auteur',
+      'Auteur — louisguichard.fr',
     ])
     expect(screen.getByRole('menuitem', { name: 'Auteur — louisguichard.fr', hidden: true })).toBeInTheDocument()
     expect(screen.queryByRole('menuitem', { name: 'Ma position', hidden: true })).not.toBeInTheDocument()
@@ -206,6 +209,24 @@ describe('mobile view routing', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Fermer' }))
     expect(document.querySelector('.desktop-search-cluster')).not.toHaveAttribute('inert')
     expect(document.querySelector('.mobile-search-trigger')).not.toHaveAttribute('inert')
+  })
+
+  it('confirms a copy on the item itself before the menu withdraws', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined)
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true })
+    render(<App />)
+
+    fireEvent.click(screen.getByRole('button', { name: /Éclipse.*12 août 2026/ }))
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Partager — copier le lien' }))
+
+    await waitFor(() => {
+      expect(screen.getByRole('menuitem', { name: 'Partager — copier le lien' }))
+        .toHaveAttribute('data-copied', 'true')
+    })
+    expect(writeText).toHaveBeenCalledWith('https://example.test/eclipse')
+    // The confirmation has to be readable, so the menu stays up for a beat.
+    expect(screen.getByRole('button', { name: 'Fermer' })).toHaveClass('mobile-layer-scrim--menu')
+    expect(screen.getByText('Lien copié !')).toBeInTheDocument()
   })
 
   it('keeps a dedicated geolocation control beside desktop search', () => {

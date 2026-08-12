@@ -42,14 +42,19 @@ const MANIFEST: VisibilityDatasetManifest = {
 describe('VisibilityLegend', () => {
   afterEach(cleanup)
 
-  it('describes yellow as a probable clearance and reads source metadata from the manifest', () => {
+  it('names the yellow on the card and keeps the manifest metadata in the tooltip', () => {
     render(<VisibilityLegend preferredVisibilityDataset={MANIFEST} />)
 
     expect(screen.getByText('En jaune : dégagement probable')).toBeInTheDocument()
-    expect(screen.getByText('Agglomération test · 5 m · maximum local · hors météo')).toBeInTheDocument()
-    expect(screen.getByText('© Source cartographique test · Licence test · Résolution 5 m')).toBeInTheDocument()
-    expect(screen.getByText(/relief situé au-delà des 15 km calculés/)).toBeInTheDocument()
-    expect(screen.queryByText('Soleil probablement visible')).not.toBeInTheDocument()
+    // The card carries one line; the dataset, its reference instant, the
+    // licence credit and the caveats are all reachable without covering it.
+    expect(screen.queryByText(/hors météo/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/Licence test/)).not.toBeInTheDocument()
+
+    const tooltip = screen.getByTitle(/Agglomération test/)
+    expect(tooltip.title).toContain('maximum local · hors météo')
+    expect(tooltip.title).toContain('© Source cartographique test · Licence test · Résolution 5 m')
+    expect(tooltip.title).toContain('relief situé au-delà des 15 km calculés')
   })
 
   it('advertises the twenty largest urban areas outside published coverage', () => {

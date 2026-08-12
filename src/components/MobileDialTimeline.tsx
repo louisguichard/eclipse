@@ -122,7 +122,6 @@ export function MobileDialTimeline({
     <section className="mobile-timeline" aria-label="Chronologie de l’éclipse">
       <div className="mobile-timeline__clock">
         <strong>{formatLocalTime(snapshot.date, timeZone)}</strong>
-        <span>Glisser pour changer l’heure</span>
       </div>
 
       <div className="mobile-dial">

@@ -54,7 +54,10 @@ export function EclipseOverlay({
     snapshot.obscuration / Math.max(snapshot.circumstances.peakObscuration, 0.0001),
   )
   const glow = 0.25 + (1 - eclipseRatio) * 0.75
-  const calloutSide = position.x > 0.6 ? 'left' : 'right'
+  // On mobile the callout runs about 190px past the marker — more than half a
+  // 375px screen. Flipping at the midpoint is what keeps "du Soleil caché" from
+  // being sliced off the right edge on the narrowest phones.
+  const calloutSide = position.x > 0.5 ? 'left' : 'right'
   const fallbackLeft = `${position.x * 100}%`
   const fallbackTop = `${position.y * 100}%`
 

@@ -2,10 +2,10 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   Check,
   ChevronDown,
-  Copy,
   GitFork,
   Globe2,
   LocateFixed,
+  Mail,
   Maximize2,
   Minimize2,
   Search,
@@ -13,12 +13,13 @@ import {
   WifiOff,
   X,
 } from 'lucide-react'
+import { AboutModal } from './components/AboutModal'
 import { EclipseInfo } from './components/EclipseInfo'
-import { LegalModal } from './components/LegalModal'
 import { LocationSearch } from './components/LocationSearch'
 import { MaintenanceBanner } from './components/MaintenanceBanner'
 import { MapView } from './components/MapView'
 import { MobileDialTimeline } from './components/MobileDialTimeline'
+import { SceneFooter } from './components/SceneFooter'
 import { StreetView } from './components/StreetView'
 import { Timeline } from './components/Timeline'
 import { formatLocalDateTime } from './lib/format'
@@ -28,6 +29,7 @@ import { useWeather } from './hooks/useWeather'
 import { useTimelinePlayback } from './hooks/useTimelinePlayback'
 import { TIMELINE } from './config/eclipse'
 import { MAINTENANCE_BANNER_ENABLED } from './config/features'
+import { CONTACT_EMAIL, PROVENANCE } from './config/site'
 import type { LatLng, MobileView, PanoramaState } from './types'
 
 const INITIAL_PANORAMA: PanoramaState = {
@@ -59,9 +61,9 @@ function App() {
   // Magnifying it is an explicit choice, not the default impression.
   const [expandedSimulation, setExpandedSimulation] = useState(false)
   const [, setPanorama] = useState<PanoramaState>(INITIAL_PANORAMA)
-  const [copied, setCopied] = useState(false)
+  const [copied, setCopied] = useState<'link' | 'email' | null>(null)
   const [online, setOnline] = useState(navigator.onLine)
-  const [legal, setLegal] = useState<'privacy' | 'terms' | null>(null)
+  const [about, setAbout] = useState(false)
   const debug = useMemo(() => new URLSearchParams(window.location.search).get('debug') === 'true', [])
   const cloudCover = weather.snapshot?.cloudCover
   const timeZone = weather.timeZone ?? 'UTC'
@@ -89,10 +91,16 @@ function App() {
     }
   }, [])
 
+  // Long enough to read the confirmation, short enough that the menu feels
+  // like it stepped aside on its own rather than waiting to be dismissed.
   useEffect(() => {
-    if (!copied) return
-    const timeout = window.setTimeout(() => setCopied(false), 2_200)
-    return () => window.clearTimeout(timeout)
+    if (!copied) return undefined
+    const close = window.setTimeout(() => setMobileLayer(null), 1_050)
+    const reset = window.setTimeout(() => setCopied(null), 1_500)
+    return () => {
+      window.clearTimeout(close)
+      window.clearTimeout(reset)
+    }
   }, [copied])
 
   useEffect(() => {
@@ -126,11 +134,20 @@ function App() {
   const copyShareLink = useCallback(async () => {
     try {
       await navigator.clipboard.writeText(shareUrl())
-      setCopied(true)
+      setCopied('link')
     } catch (error) {
       console.error('Copy failed', error)
     }
   }, [shareUrl])
+
+  const copyContactEmail = useCallback(async () => {
+    try {
+      await navigator.clipboard.writeText(CONTACT_EMAIL)
+      setCopied('email')
+    } catch (error) {
+      console.error('Copy failed', error)
+    }
+  }, [])
 
   const selectLocation = useCallback((next: Parameters<typeof setLocation>[0]) => {
     setLocation(next)
@@ -233,13 +250,33 @@ function App() {
         </button>
 
         <div className="mobile-title-menu" role="menu" aria-hidden={mobileLayer !== 'menu'}>
+          {/* The confirmation happens where the finger already is: the label
+              dissolves into the result, then the menu withdraws on its own. */}
           <button
             type="button"
             role="menuitem"
-            onClick={() => { void copyShareLink(); setMobileLayer(null) }}
+            aria-label="Partager — copier le lien"
+            data-copied={copied === 'link'}
+            onClick={() => { void copyShareLink() }}
           >
-            {copied ? <Check aria-hidden="true" size={16} /> : <Share2 aria-hidden="true" size={16} />}
-            Partager
+            {copied === 'link' ? <Check aria-hidden="true" size={16} /> : <Share2 aria-hidden="true" size={16} />}
+            <span className="menu-swap">
+              <span className="menu-swap__idle">Partager</span>
+              <span className="menu-swap__done" aria-hidden={copied !== 'link'}>Lien copié !</span>
+            </span>
+          </button>
+          <button
+            type="button"
+            role="menuitem"
+            aria-label={`Contact — copier ${CONTACT_EMAIL}`}
+            data-copied={copied === 'email'}
+            onClick={() => { void copyContactEmail() }}
+          >
+            {copied === 'email' ? <Check aria-hidden="true" size={16} /> : <Mail aria-hidden="true" size={16} />}
+            <span className="menu-swap">
+              <span className="menu-swap__idle">Contact</span>
+              <span className="menu-swap__done" aria-hidden={copied !== 'email'}>Email copié&nbsp;!</span>
+            </span>
           </button>
           <a href="https://github.com/louisguichard/eclipse" target="_blank" rel="noreferrer" role="menuitem">
             <GitFork aria-hidden="true" size={16} /> Code source
@@ -255,14 +292,13 @@ function App() {
           </a>
           <div className="mobile-title-menu__credits">
             <span className="mobile-title-menu__source-title">Sources</span>
-            <span>Astronomie · Astronomy Engine · NASA</span>
-            <span>Carte · OpenFreeMap / OpenStreetMap · Vue Streetlevel</span>
-            <span>Météo · Open-Meteo</span>
-            <span>Relief · IGN LiDAR HD</span>
+            {PROVENANCE.map((source) => (
+              <span key={source.name}>{source.label} · {source.name}</span>
+            ))}
             <span>
-              <button type="button" onClick={() => { setLegal('terms'); setMobileLayer(null) }}>Conditions</button>
-              {' · '}
-              <button type="button" onClick={() => { setLegal('privacy'); setMobileLayer(null) }}>Confidentialité</button>
+              <button type="button" onClick={() => { setAbout(true); setMobileLayer(null) }}>
+                Méthode, limites et mentions légales
+              </button>
             </span>
           </div>
         </div>
@@ -298,6 +334,7 @@ function App() {
               onPanoramaStateChange={setPanorama}
               onUserPositionChange={selectStreetViewLocation}
               cloudCover={cloudCover}
+              playing={playback.playing}
               debug={debug}
             />
           </div>
@@ -388,7 +425,8 @@ function App() {
         </button>
       </nav>
 
-      {copied && <div className="copy-toast" role="status"><Copy size={15} /> Lien copié</div>}
+      <SceneFooter onAbout={() => setAbout(true)} />
+
       {debug && (
         <div className="debug-app">
           <strong>DEBUG · APP</strong>
@@ -400,7 +438,7 @@ function App() {
           <span>Local ({timeZone})&nbsp;: {formatLocalDateTime(snapshot.date, timeZone)}</span>
         </div>
       )}
-      <LegalModal type={legal} onClose={() => setLegal(null)} />
+      <AboutModal open={about} onClose={() => setAbout(false)} />
     </div>
   )
 }

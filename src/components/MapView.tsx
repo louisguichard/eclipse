@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { AlertTriangle, Compass } from 'lucide-react'
+import { AlertTriangle, Compass, Pointer } from 'lucide-react'
 import mapLibreWorkerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url'
 import type {
   ErrorEvent as MapLibreErrorEvent,
@@ -12,7 +12,7 @@ import { buildSunTrajectory } from '../lib/astronomy'
 import { VISIBILITY_DATASETS, VISIBILITY_LAYER_OPACITY } from '../config/visibility'
 import { destinationPoint } from '../lib/geometry'
 import { formatLocalTime } from '../lib/format'
-import { resolveBasemapStyle } from '../lib/mapLibreBasemap'
+import { applyBasemapLandTone, resolveBasemapStyle } from '../lib/mapLibreBasemap'
 import { createVisibilityRasterDefinition } from '../lib/mapLibreVisibility'
 import { ensureVisibilityTileProtocol } from '../lib/mapLibreVisibilityProtocol'
 import {
@@ -117,13 +117,34 @@ type VisibilityLegendProps = {
   knownVisibilityDataset?: VisibilityDatasetManifest | null
 }
 
-function visibilitySourceLabel(manifest: VisibilityDatasetManifest): string {
-  const resolution = manifest.surface.resolutionMeters
-  return resolution === null
-    ? manifest.attribution
-    : `${manifest.attribution} · Résolution ${resolution} m`
+/** "Cliquez" on a desktop pointer, "Appuyez" on a touchscreen. */
+function pointerVerb(): string {
+  const fine = typeof window.matchMedia === 'function'
+    && window.matchMedia('(hover: hover) and (pointer: fine)').matches
+  return fine ? 'Cliquez' : 'Appuyez'
 }
 
+function visibilityDetail(manifest: VisibilityDatasetManifest): string {
+  const reference = manifest.reference.mode === 'fixed-instant'
+    ? formatLocalTime(new Date(manifest.reference.timeUtc!), 'Europe/Paris')
+    : 'maximum local'
+  const resolution = manifest.surface.resolutionMeters
+  return [
+    `${manifest.label} · ${reference} · hors météo`,
+    resolution === null ? manifest.attribution : `${manifest.attribution} · Résolution ${resolution} m`,
+    manifest.disclaimer,
+    ...(manifest.warnings ?? []),
+  ].filter(Boolean).join('\n')
+}
+
+/**
+ * One line names the yellow; everything else is a tooltip.
+ *
+ * The dataset label, its reference instant and the IGN credit used to be
+ * printed under it, which turned a legend into a paragraph covering the corner
+ * of a card barely 300 px wide. The credit the Licence Ouverte requires now
+ * lives in the About panel, where it can be read rather than merely displayed.
+ */
 export function VisibilityLegend({
   preferredVisibilityDataset,
   knownVisibilityDataset,
@@ -132,37 +153,23 @@ export function VisibilityLegend({
     <p
       className={`map-legend ${preferredVisibilityDataset ? '' : 'map-legend--unavailable'}`}
       title={
-        preferredVisibilityDataset?.disclaimer
-        ?? knownVisibilityDataset?.unavailableReason
-        ?? 'Aucune donnée de visibilité publiée pour cette zone.'
+        preferredVisibilityDataset
+          ? visibilityDetail(preferredVisibilityDataset)
+          : knownVisibilityDataset?.unavailableReason
+            ?? 'Aucune donnée de visibilité publiée pour cette zone.'
       }
     >
       <span className="map-legend__swatch" aria-hidden="true" />
       <span className="map-legend__copy">
         <strong>{preferredVisibilityDataset ? 'En jaune : dégagement probable' : 'Zones de visibilité'}</strong>
-        <span>
-          {preferredVisibilityDataset
-            ? `${preferredVisibilityDataset.label} · ${
-                preferredVisibilityDataset.reference.mode === 'fixed-instant'
-                  ? formatLocalTime(
-                      new Date(preferredVisibilityDataset.reference.timeUtc!),
-                      'Europe/Paris',
-                    )
-                  : 'maximum local'
-              } · hors météo`
-            : knownVisibilityDataset
-              ? 'Données de visibilité momentanément indisponibles'
+        {!preferredVisibilityDataset && (
+          <span>
+            {knownVisibilityDataset
+              ? 'Données momentanément indisponibles'
               : 'Couche LiDAR disponible dans les 20 plus grandes agglomérations de France'}
-        </span>
-        {preferredVisibilityDataset?.warnings?.map((warning) => (
-          <span key={warning}>⚠ {warning}</span>
-        ))}
+          </span>
+        )}
       </span>
-      {preferredVisibilityDataset && (
-        <span className="map-legend__source">
-          {visibilitySourceLabel(preferredVisibilityDataset)}
-        </span>
-      )}
     </p>
   )
 }
@@ -234,6 +241,10 @@ export function MapView({
   const activeVisibilityKeyRef = useRef<string | null>(null)
   const [shouldInitialize, setShouldInitialize] = useState(active)
   const [status, setStatus] = useState<MapStatus>('idle')
+  // The hint replays each time the map is opened, until a first tap proves it
+  // has been understood. `hintRun` remounts the element so the fade restarts.
+  const [hintRun, setHintRun] = useState(0)
+  const [hintLearned, setHintLearned] = useState(false)
 
   observerRef.current = observer
   onLocationChangeRef.current = onLocationChange
@@ -285,7 +296,21 @@ export function MapView({
     }
     initializeOnDesktop()
     desktop.addEventListener('change', initializeOnDesktop)
-    return () => desktop.removeEventListener('change', initializeOnDesktop)
+
+    // Phones open the map from a tab, and building it on that tap is what made
+    // the switch feel slow: a spinner, then tiles. Warming it once the first
+    // view has settled costs one basemap fetch and makes the tab instant.
+    // Skipped when the reader has asked their browser to save data.
+    const saveData = (navigator as { connection?: { saveData?: boolean } })
+      .connection?.saveData === true
+    const warmUp = saveData
+      ? null
+      : window.setTimeout(() => setShouldInitialize(true), 2_500)
+
+    return () => {
+      desktop.removeEventListener('change', initializeOnDesktop)
+      if (warmUp !== null) window.clearTimeout(warmUp)
+    }
   }, [active, shouldInitialize])
 
   useEffect(() => {
@@ -350,6 +375,7 @@ export function MapView({
         markerRef.current = initializedMarker
 
         handleClick = (event) => {
+          setHintLearned(true)
           onLocationChangeRef.current({
             lat: event.lngLat.lat,
             lng: event.lngLat.lng,
@@ -367,6 +393,7 @@ export function MapView({
           if (cancelled) return
           collapseCompactAttribution(host)
           baseStyleReady = true
+          applyBasemapLandTone(map)
 
           const firstSymbolLayerId = map.getStyle().layers.find(
             ({ type }) => type === 'symbol',
@@ -534,6 +561,11 @@ export function MapView({
     }
   }, [status])
 
+  useEffect(() => {
+    if (!active || hintLearned) return
+    setHintRun((run) => run + 1)
+  }, [active, hintLearned])
+
   return (
     <div className="map-stage">
       <div
@@ -543,6 +575,12 @@ export function MapView({
         aria-label="Carte interactive MapLibre"
         aria-busy={status === 'loading'}
       />
+      {active && !hintLearned && status !== 'loading' && (
+        <p className="map-hint" key={hintRun} role="status">
+          <Pointer aria-hidden="true" size={13} />
+          {pointerVerb()} sur la carte pour vous y déplacer
+        </p>
+      )}
       {status === 'loading' && (
         <div className="panel-loading" role="status">
           <span className="orb-loader" /> Chargement de la carte…

@@ -2,6 +2,7 @@
 
 import { act, cleanup, render, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { BASEMAP_BUILDING_COLOR, BASEMAP_LAND_COLOR } from '../lib/mapLibreBasemap'
 import type { EclipseSnapshot, ObserverLocation } from '../types'
 import { MapView } from './MapView'
 
@@ -13,6 +14,7 @@ const mocks = vi.hoisted(() => ({
     options: Record<string, unknown>
     sources: Map<string, Source>
     layers: Array<Record<string, unknown>>
+    paint: Array<[string, string, unknown]>
     emit: (event: string, payload?: unknown) => void
     setLayoutProperty: ReturnType<typeof vi.fn>
     easeTo: ReturnType<typeof vi.fn>
@@ -26,7 +28,10 @@ const mocks = vi.hoisted(() => ({
   setWorkerUrl: vi.fn(),
 }))
 
-vi.mock('../lib/mapLibreBasemap', () => ({
+// Only the style resolution is stubbed; the land repaint runs for real so the
+// test proves the ground actually stops being black.
+vi.mock('../lib/mapLibreBasemap', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../lib/mapLibreBasemap')>()),
   resolveBasemapStyle: mocks.resolveBasemapStyle,
 }))
 
@@ -36,10 +41,16 @@ vi.mock('maplibre-gl', () => {
     sources = new globalThis.Map<string, Source>()
     layers: Array<Record<string, unknown>> = [
       { id: 'background', type: 'background' },
+      { id: 'building', type: 'fill', 'source-layer': 'building' },
       { id: 'labels', type: 'symbol' },
     ]
     handlers = new globalThis.Map<string, Set<Handler>>()
     zoom = 15
+    paint: Array<[string, string, unknown]> = []
+    setPaintProperty = vi.fn((layerId: string, property: string, value: unknown) => {
+      this.paint.push([layerId, property, value])
+      return this
+    })
     setLayoutProperty = vi.fn()
     easeTo = vi.fn()
     resize = vi.fn()
@@ -237,6 +248,10 @@ describe('MapView MapLibre lifecycle', () => {
 
     expect(map.layers.some(({ id }) => String(id).startsWith('visibility-layer-'))).toBe(true)
     expect(map.sources.get('solar-direction-source')?.setData).toHaveBeenCalled()
+    // The ground is repainted graphite so the card does not read as a hole, and
+    // the footprints follow it — in a dense city they are most of what is drawn.
+    expect(map.paint).toContainEqual(['background', 'background-color', BASEMAP_LAND_COLOR])
+    expect(map.paint).toContainEqual(['building', 'fill-color', BASEMAP_BUILDING_COLOR])
 
     act(() => map.emit('click', { lngLat: { lat: 48.87, lng: 2.38 } }))
     expect(onLocationChange).toHaveBeenCalledWith({

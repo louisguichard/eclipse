@@ -48,7 +48,6 @@ describe('MobileDialTimeline', () => {
     expect(screen.getByText('20:17')).toBeInTheDocument()
     expect(screen.getByText('19:22')).toBeInTheDocument()
     expect(screen.getByText('21:09')).toBeInTheDocument()
-    expect(screen.getByText('Glisser pour changer l’heure')).toBeInTheDocument()
 
     const slider = screen.getByRole('slider', { name: 'Heure de l’éclipse' })
     fireEvent.keyDown(slider, { key: 'ArrowRight' })

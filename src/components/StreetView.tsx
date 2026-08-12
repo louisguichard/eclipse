@@ -37,6 +37,8 @@ export type StreetViewProps = {
   active: boolean
   expanded: boolean
   cloudCover?: number | null
+  /** Twilight only falls while the eclipse is being played back. */
+  playing?: boolean
   onExpandedChange: (value: boolean) => void
   onPanoramaStateChange?: (state: PanoramaState) => void
   onUserPositionChange?: (position: LatLng) => void
@@ -241,6 +243,7 @@ export function StreetView({
   active,
   expanded,
   cloudCover = null,
+  playing = false,
   onExpandedChange,
   onPanoramaStateChange,
   onUserPositionChange,
@@ -279,7 +282,10 @@ export function StreetView({
     return geometricProjectedSun
   }, [geometricProjectedSun, ready, sunViewportPoint])
   const twilight = useMemo(() => gradeTwilight(snapshot), [snapshot])
-  const eclipseVeilOpacity = snapshot.circumstances.visible
+  // The photograph arrives as it was taken. Dimming it is an effect of the
+  // playback, not the resting state of the page: a visitor who lands here sees
+  // the street they know, and the light drops only once they press play.
+  const eclipseVeilOpacity = playing && snapshot.circumstances.visible
     ? Math.min(
         0.62,
         (snapshot.obscuration / Math.max(snapshot.circumstances.peakObscuration, 0.0001)) * 0.62,
@@ -322,7 +328,9 @@ export function StreetView({
         {demo && <DemoBackdrop filter={twilight.panoramaFilter} />}
         {showStateMessage && <StateMessage state={panoramaState} />}
 
-        {(ready || demo) && <TwilightFilter grade={twilight} sunPosition={sunPosition} />}
+        {(ready || demo) && (
+          <TwilightFilter grade={twilight} sunPosition={sunPosition} active={playing} />
+        )}
 
         {(ready || demo) && snapshot.circumstances.visible && (
           <>

@@ -7,6 +7,8 @@ export type TwilightFilterProps = {
     x: number
     y: number
   }
+  /** Faded in with the playback rather than applied at rest. */
+  active?: boolean
 }
 
 /**
@@ -16,12 +18,17 @@ export type TwilightFilterProps = {
  *
  * Purely decorative, so it never intercepts pointer events nor exposes itself
  * to assistive technology.
+ *
+ * The wrapper carries the fade: none of the layers below use `backdrop-filter`,
+ * so making it a backdrop root costs nothing, and one opacity is far cheaper to
+ * animate than five custom properties.
  */
-export function TwilightFilter({ grade, sunPosition }: TwilightFilterProps) {
+export function TwilightFilter({ grade, sunPosition, active = true }: TwilightFilterProps) {
   return (
     <div
       className="twilight"
       aria-hidden="true"
+      data-active={active}
       style={{
         '--twilight-ember': grade.emberOpacity,
         '--twilight-night': grade.nightOpacity,

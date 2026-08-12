@@ -28,6 +28,9 @@
   --ember-deep: #ef9420;
   --ember-glow: rgb(255 176 78 / 0.22);
 
+  /* The single green in the palette: confirmations, nothing else. */
+  --ok: #7fe3ab;
+
   /* Night */
   --night-950: #04070d;
   --night-900: #070c15;
@@ -41,16 +44,24 @@
   --stroke-strong: rgb(226 236 250 / 0.24);
   --inner-light: inset 0 1px 0 rgb(255 255 255 / 0.06);
 
-  /* Quiet optical glass. These surfaces stay translucent enough to retain the
-     scene underneath, while the cool tint keeps white copy readable over both
-     bright sky and dark architecture. */
-  --glass-surface: linear-gradient(145deg, rgb(31 42 60 / 0.58), rgb(8 13 23 / 0.42));
-  --glass-surface-hover: linear-gradient(145deg, rgb(38 50 69 / 0.64), rgb(10 16 27 / 0.48));
-  --glass-surface-strong: linear-gradient(145deg, rgb(20 28 42 / 0.76), rgb(5 9 17 / 0.66));
+  /* Quiet optical glass. The material carries almost no pigment of its own:
+     most of what you see is the scene behind it, heavily blurred and slightly
+     over-saturated, with a bright hairline along the top edge standing in for a
+     specular highlight. The faint cool tint is only there to hold white copy
+     legible over sunlit stone. */
+  --glass-surface: linear-gradient(160deg, rgb(24 33 48 / 0.4), rgb(7 12 21 / 0.28));
+  --glass-surface-hover: linear-gradient(160deg, rgb(46 60 82 / 0.46), rgb(12 19 31 / 0.32));
+  --glass-surface-strong: linear-gradient(160deg, rgb(19 27 41 / 0.7), rgb(5 9 17 / 0.6));
+  /* The search field and the footer bar carry a single short line each and float
+     straight over the photograph, so they can be thinner than the panels that
+     hold figures: nearly all blur, barely any pigment. */
+  --glass-surface-airy: linear-gradient(160deg, rgb(26 36 53 / 0.24), rgb(7 12 21 / 0.14));
   --glass-stroke: rgb(240 246 255 / 0.17);
   --glass-stroke-strong: rgb(246 249 255 / 0.3);
   --glass-highlight: inset 0 1px 0 rgb(255 255 255 / 0.15), inset 0 -1px 0 rgb(0 0 0 / 0.16);
-  --glass-blur: blur(24px) saturate(1.48);
+  /* The specular rim used on its own, without the dark counter-edge. */
+  --glass-rim: inset 0 1px 0 rgb(255 255 255 / 0.16);
+  --glass-blur: blur(32px) saturate(1.7);
 
   /* Geometry */
   --r-sm: 10px;
@@ -125,6 +136,16 @@ input:focus-visible {
 .scene-readout__figure strong {
   font-variant-numeric: tabular-nums;
   font-feature-settings: "tnum" 1;
+}
+
+/* The readings themselves are set in the mono face — an instrument's figures,
+   not the interface's prose. Only weight 500 of IBM Plex Mono is loaded and
+   `font-synthesis` is off, so nothing here declares a weight it cannot draw. */
+.readout__headline strong,
+.readout__stats dd,
+.timeline__now strong {
+  font-family: var(--font-mono);
+  font-weight: 500;
 }
 
 ::selection {
@@ -386,32 +407,58 @@ input:focus-visible {
   align-items: center;
   gap: 11px;
   padding: 0 18px;
-  border: 1px solid var(--glass-stroke);
+  border: 1px solid rgb(240 246 255 / 0.12);
   border-radius: var(--pill);
   color: var(--ink-mute);
-  background: var(--glass-surface);
-  box-shadow: var(--glass-highlight), 0 12px 34px -26px rgb(0 0 0 / 0.92);
+  background: var(--glass-surface-airy);
+  box-shadow: var(--glass-rim), 0 14px 38px -28px rgb(0 0 0 / 0.92);
   backdrop-filter: var(--glass-blur);
   -webkit-backdrop-filter: var(--glass-blur);
-  transition: border-color 220ms var(--ease), background 220ms var(--ease),
-    box-shadow 220ms var(--ease), color 220ms var(--ease);
+  transition: border-color 220ms var(--ease), box-shadow 220ms var(--ease),
+    color 220ms var(--ease);
 }
 
-.location-search:hover {
-  border-color: rgb(246 249 255 / 0.26);
-  color: var(--ink-soft);
+/* Hover brightens an overlay rather than swapping the background: a gradient
+   cannot be interpolated, so transitioning `background` snapped on and left the
+   lit state behind when the pointer moved away. */
+.location-search::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
   background: var(--glass-surface-hover);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 220ms var(--ease);
 }
 
+@media (hover: hover) {
+  .location-search:hover {
+    border-color: rgb(246 249 255 / 0.2);
+    color: var(--ink-soft);
+  }
+
+  .location-search:hover::before {
+    opacity: 1;
+  }
+}
+
+/* Focus is a state of the field, not of the pointer, so it does not reuse the
+   hover wash: leaving the wash lit after a click is what made hover look stuck.
+   A brighter rim and a whisper of a halo say "typing here" on their own. */
 .location-search:focus-within {
-  border-color: rgb(246 249 255 / 0.38);
+  border-color: rgb(246 249 255 / 0.32);
   color: var(--ink);
-  background: linear-gradient(145deg, rgb(36 47 65 / 0.7), rgb(8 13 23 / 0.6));
   box-shadow:
-    inset 0 1px 0 rgb(255 255 255 / 0.19),
-    inset 0 -1px 0 rgb(0 0 0 / 0.16),
-    0 0 0 4px rgb(236 243 255 / 0.055),
+    var(--glass-rim),
+    0 0 0 4px rgb(236 243 255 / 0.05),
     0 16px 42px -28px rgb(0 0 0 / 0.95);
+}
+
+/* Every child sits above the hover wash. */
+.location-search > * {
+  position: relative;
+  z-index: 1;
 }
 
 .location-search > svg {
@@ -423,11 +470,21 @@ input:focus-visible {
 .location-search__input {
   width: 100%;
   min-width: 0;
+  /* Two things made the caret look like a stub. Blink draws it at the height of
+     the glyph box — ascent plus descent, so the type size is the lever, not the
+     line-height — and the field was boxed to 26px inside a 46–56px bar, which
+     cropped anything taller at both ends. The field now fills the bar and the
+     type is a notch larger, so the caret is drawn whole with air around it.
+     The ember tint makes it findable against the blurred scene. */
+  height: 100%;
   border: 0;
   outline: 0;
   color: var(--ink);
+  caret-color: var(--ember);
   background: transparent;
-  font-size: 13px;
+  /* 16px is also the threshold under which iOS zooms the page on focus. */
+  font-size: 16px;
+  line-height: 1.45;
   font-family: inherit;
   appearance: none;
 }
@@ -672,13 +729,15 @@ input:focus-visible {
 
 /* --- Twilight filter ------------------------------------------------------ */
 
-/* No `contain` and no `filter`/`opacity` on this wrapper: either would make it
-   a backdrop root, and `.twilight__grade` would then sample an empty backdrop
-   instead of the panorama. */
+/* The wrapper fades as a whole: dusk belongs to the playback, not to the
+   resting page, and one opacity is cheaper than animating five layers. Safe
+   because no layer below samples the backdrop. */
 .twilight {
   position: absolute;
   z-index: 6;
   inset: 0;
+  opacity: 1;
+  transition: opacity 420ms var(--ease);
   -webkit-mask-image: linear-gradient(
     to bottom,
     #000 0,
@@ -694,6 +753,10 @@ input:focus-visible {
     transparent 100%
   );
   pointer-events: none;
+}
+
+.twilight[data-active='false'] {
+  opacity: 0;
 }
 
 .twilight > div {
@@ -1114,10 +1177,12 @@ input:focus-visible {
 .readout__headline strong {
   margin-top: 8px;
   color: var(--ember);
-  font-size: 40px;
-  font-weight: 300;
+  font-size: 38px;
   line-height: 0.94;
-  letter-spacing: -0.035em;
+  letter-spacing: -0.03em;
+  /* French typography puts a space before the percent sign; at this size a
+     full monospaced advance opens a hole between the two. */
+  word-spacing: -0.3em;
 }
 
 .readout__suffix {
@@ -1192,14 +1257,16 @@ input:focus-visible {
   margin: 5px 0 0;
   flex-direction: column;
   color: var(--ink);
-  font-size: 14px;
-  font-weight: 550;
+  font-size: 13px;
+  letter-spacing: -0.01em;
 }
 
+/* The caption under a figure is prose, not a reading. */
 .readout__stats dd span {
   margin-top: 3px;
   overflow: hidden;
   color: var(--ink-mute);
+  font-family: var(--font-ui);
   font-size: 9px;
   font-weight: 500;
   text-overflow: ellipsis;
@@ -1422,13 +1489,54 @@ input:focus-visible {
   line-height: 1.25;
 }
 
-.map-legend__source {
-  grid-column: 2;
-  overflow: hidden;
-  color: var(--ink-faint);
-  font-size: 7.5px;
+/* Tapping anywhere moves the observer, which is the map's whole purpose and
+   the one thing nothing on screen said. It fades out on its own rather than
+   asking to be dismissed. */
+.map-hint {
+  position: absolute;
+  z-index: 6;
+  right: 12px;
+  bottom: 12px;
+  left: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  margin: 0;
+  padding: 8px 12px;
+  border: 1px solid rgb(240 246 255 / 0.11);
+  border-radius: var(--pill);
+  color: var(--ink-soft);
+  background: var(--glass-surface-strong);
+  box-shadow: var(--glass-rim), 0 14px 34px -26px rgb(0 0 0 / 0.9);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  pointer-events: none;
+  text-align: center;
+  font-size: 10.5px;
   font-weight: 500;
-  text-overflow: ellipsis;
+  animation: map-hint-fade 6s var(--ease) forwards;
+}
+
+.map-hint svg {
+  flex: 0 0 auto;
+  color: var(--ember);
+}
+
+@keyframes map-hint-fade {
+  0% { opacity: 0; transform: translateY(6px); }
+  6% { opacity: 1; transform: none; }
+  84% { opacity: 1; transform: none; }
+  100% { opacity: 0; transform: translateY(4px); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .map-hint { animation-name: map-hint-hold; }
+
+  @keyframes map-hint-hold {
+    0%, 84% { opacity: 1; }
+    100% { opacity: 0; }
+  }
 }
 
 .map-legend--unavailable .map-legend__swatch {
@@ -1728,11 +1836,10 @@ input:focus-visible {
 
 .timeline__now strong {
   color: var(--ink);
-  font-size: 27px;
-  font-weight: 350;
+  font-size: 26px;
   font-variant-numeric: tabular-nums;
   line-height: 1;
-  letter-spacing: -0.045em;
+  letter-spacing: -0.035em;
 }
 
 .timeline__track-wrap {
@@ -1889,69 +1996,175 @@ input:focus-visible {
    Chrome: footer, toasts, modal, debug
    ========================================================================== */
 
-/* Centred so it never lands on Google's logo (bottom-left) or terms links
-   (bottom-right). */
-/* Spans the full width and centres its content rather than being centred by a
-   transform: an absolutely-positioned flex row anchored at `left: 50%` only
-   gets the right half to lay out in, and wraps on a phone. */
-.footer-links {
+/* --- Scene footer: safety and provenance ---------------------------------- */
+
+/* The permanent credibility line. It spans the full width and centres its
+   content rather than being centred by a transform: an absolutely-positioned
+   flex row anchored at `left: 50%` only gets the right half to lay out in. The
+   generous inline padding keeps it clear of Google's logo (bottom-left) and
+   terms links (bottom-right), which must stay legible. */
+.scene-footer {
   position: absolute;
   z-index: 70;
   right: 0;
-  bottom: calc(9px + env(safe-area-inset-bottom));
+  bottom: calc(11px + env(safe-area-inset-bottom));
   left: 0;
   display: flex;
+  min-width: 0;
   align-items: center;
   justify-content: center;
-  flex-wrap: wrap;
-  gap: 4px 7px;
-  padding: 0 12px;
-  color: var(--ink-faint);
-  font-size: 8.5px;
+  /* The right inset keeps the bar clear of Google's own attribution, which is
+     anchored to the bottom-right corner of the panorama. */
+  padding: 0 100px 0 24px;
+  /* The band itself is empty space over the panorama: only the bar is
+     interactive, so a drag started beside it still turns the view. */
+  pointer-events: none;
 }
 
-.footer-links a,
-.footer-links button {
-  display: inline-flex;
+/* The strip is a credit, not a headline: on narrower desktops it steps aside
+   rather than being sliced mid-word. Every source stays in the About panel. */
+@media (max-width: 1320px) {
+  .scene-footer .provenance,
+  .scene-footer__bar .scene-footer__rule:nth-of-type(2) {
+    display: none;
+  }
+}
+
+/* Sunlit pavement fills the bottom of many panoramas. A text shadow alone left
+   the line half-legible there, so the words sit on their own pane of the same
+   glass as the rest of the chrome — sized to its content, not to the viewport,
+   so the panorama stays visible on either side. */
+.scene-footer__bar {
+  display: flex;
+  min-width: 0;
   align-items: center;
-  gap: 3px;
+  gap: 13px;
+  padding: 7px 16px;
+  border: 1px solid rgb(240 246 255 / 0.1);
+  border-radius: var(--pill);
+  background: var(--glass-surface-airy);
+  box-shadow: var(--glass-rim), 0 14px 38px -30px rgb(0 0 0 / 0.9);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  pointer-events: auto;
+}
+
+.scene-footer__safety,
+.scene-footer__about {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 6px;
   padding: 0;
   border: 0;
-  color: inherit;
+  color: var(--ink-soft);
   background: transparent;
   cursor: pointer;
+  white-space: nowrap;
+  font-size: 10.5px;
+  transition: color 160ms var(--ease);
+}
+
+.scene-footer__safety svg {
+  color: var(--ember);
+  opacity: 0.85;
+}
+
+.scene-footer__safety b {
+  color: var(--ember);
+  font-family: var(--font-mono);
+  font-weight: 500;
+}
+
+.scene-footer__about {
+  text-decoration: underline;
+  text-decoration-color: var(--ink-faint);
+  text-underline-offset: 3px;
+}
+
+.scene-footer__safety:hover,
+.scene-footer__about:hover {
+  color: var(--ink);
+}
+
+.scene-footer__rule {
+  width: 1px;
+  height: 12px;
+  flex: 0 0 auto;
+  background: rgb(240 246 255 / 0.16);
+}
+
+/* Every figure on screen is traceable to a named source, on one line, without
+   asking anyone to open a panel. */
+.provenance {
+  display: flex;
+  min-width: 0;
+  align-items: baseline;
+  gap: 12px;
+  overflow: hidden;
+  margin: 0;
+  color: var(--ink-mute);
+  white-space: nowrap;
+  font-family: var(--font-mono);
+  font-size: 10px;
+}
+
+.provenance__item {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 5px;
+}
+
+.provenance__item + .provenance__item::before {
+  content: "·";
+  margin-right: 7px;
+  opacity: 0.55;
+}
+
+.provenance a {
+  color: var(--ink-soft);
   text-decoration: none;
   transition: color 160ms var(--ease);
 }
 
-.footer-links a:hover,
-.footer-links button:hover {
-  color: var(--ink-soft);
+.provenance a:hover {
+  color: var(--ember);
+  text-decoration: underline;
+  text-underline-offset: 2px;
 }
 
-.footer-links__code svg {
-  opacity: 0.8;
+/* Phones keep the photograph edge to edge, so the sources move into the menu
+   and only the reminder that matters for someone's eyes stays on the scene. It
+   sits in the empty band the header reserves above the title. */
+.safety-chip {
+  display: none;
 }
 
-.copy-toast {
-  position: fixed;
-  z-index: 250;
-  bottom: 146px;
-  left: 50%;
-  transform: translateX(-50%);
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 9px 13px;
-  border: 1px solid rgb(139 231 181 / 0.22);
-  border-radius: var(--r-md);
-  color: #b9f0d2;
-  background: rgb(12 46 34 / 0.94);
-  box-shadow: var(--shadow-float);
-  backdrop-filter: var(--glass);
-  font-size: 10.5px;
+/* Copy confirmations happen in place: the label dissolves into its result
+   rather than a toast appearing somewhere else on the screen. Both strings
+   share one grid cell, so the item never changes width mid-fade. */
+.menu-swap {
+  display: inline-grid;
+  min-width: 0;
+}
+
+.menu-swap > span {
+  grid-area: 1 / 1;
+  white-space: nowrap;
+  transition: opacity 200ms var(--ease);
+}
+
+.menu-swap__done {
+  color: var(--ok);
   font-weight: 640;
-  animation: rise-center 200ms var(--ease);
+  opacity: 0;
+}
+
+[data-copied='true'] .menu-swap__idle { opacity: 0; }
+[data-copied='true'] .menu-swap__done { opacity: 1; }
+
+.mobile-title-menu > button[data-copied='true'] svg {
+  color: var(--ok);
 }
 
 .modal-backdrop {
@@ -1987,6 +2200,15 @@ input:focus-visible {
   letter-spacing: -0.025em;
 }
 
+.legal-modal h3 {
+  margin: 26px 0 10px;
+  color: var(--ink);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+}
+
 .legal-modal p {
   margin: 0 0 14px;
   font-size: 12px;
@@ -1995,6 +2217,102 @@ input:focus-visible {
 
 .legal-modal a {
   color: var(--ember);
+}
+
+/* The one thing in this panel that can injure someone reads first and reads
+   differently from the rest. */
+.legal-modal__safety {
+  margin: 0 0 4px;
+  padding: 14px 16px;
+  border: 1px solid rgb(255 176 78 / 0.28);
+  border-radius: var(--r-md);
+  background: rgb(255 176 78 / 0.07);
+}
+
+.legal-modal__safety strong {
+  display: block;
+  margin-bottom: 8px;
+  color: var(--ember-bright);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.legal-modal__safety p {
+  margin: 0;
+  color: var(--ink-soft);
+}
+
+.legal-modal__sources {
+  display: grid;
+  margin: 0 0 14px;
+  padding: 0;
+  gap: 7px;
+  list-style: none;
+  font-size: 12px;
+}
+
+.legal-modal__sources li {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+
+/* What each line is about should be readable before its provenance: the label
+   sits on a faint plate so the eye can run down the column and stop at the
+   right row instead of reading every source in full. */
+.legal-modal__sources span {
+  flex: none;
+  min-width: 62px;
+  padding: 3px 8px;
+  border-radius: var(--r-sm);
+  color: var(--ink-soft);
+  background: rgb(240 246 255 / 0.07);
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: 0.07em;
+  text-align: center;
+  text-transform: uppercase;
+}
+
+/* The Licence Ouverte credit: an obligation, not something to read. */
+p.legal-modal__credit {
+  margin: -6px 0 12px;
+  color: var(--ink-faint);
+  font-size: 10px;
+}
+
+.legal-modal__contact {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-top: 24px;
+  padding-top: 18px;
+  border-top: 1px solid var(--stroke);
+  color: var(--ink-mute);
+  font-size: 12px;
+}
+
+/* A copy button rather than a mailto: it works whatever the reader's mail
+   client is, and the address never becomes a link for scrapers to follow. */
+.legal-modal__contact button {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 12px;
+  border: 1px solid var(--stroke);
+  border-radius: var(--r-sm);
+  color: var(--ink);
+  background: rgb(255 255 255 / 0.04);
+  cursor: pointer;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  transition: border-color 160ms var(--ease), background 160ms var(--ease);
+}
+
+.legal-modal__contact button:hover {
+  border-color: var(--stroke-strong);
+  background: rgb(255 255 255 / 0.08);
 }
 
 .modal-close {
@@ -2206,13 +2524,18 @@ input:focus-visible {
     inset: calc(100px + env(safe-area-inset-top)) 0 calc(168px + env(safe-area-inset-bottom));
   }
 
+  /* Both panels occupy the same rectangle, so switching tabs can be a genuine
+     cross-fade. `visibility` carries no transition of its own, which used to
+     snap the outgoing panel away the instant the class changed and left the
+     incoming one fading up from black; delaying it to the end of the fade lets
+     the two overlap. */
   .view-panel {
     position: absolute;
     inset: 0;
     opacity: 0;
     pointer-events: none;
     visibility: hidden;
-    transition: opacity 180ms var(--ease);
+    transition: opacity 260ms var(--ease), visibility 0s linear 260ms;
   }
 
   .view-panel.is-mobile-active {
@@ -2220,6 +2543,7 @@ input:focus-visible {
     opacity: 1;
     pointer-events: auto;
     visibility: visible;
+    transition: opacity 260ms var(--ease), visibility 0s;
   }
 
   .map-panel {
@@ -2367,13 +2691,12 @@ input:focus-visible {
   .timeline-event__label { font-size: 7px; }
   .timeline-reset { display: none; }
 
-  .footer-links {
+  .scene-footer {
     bottom: calc(60px + env(safe-area-inset-bottom));
-    gap: 3px 6px;
-    font-size: 7.5px;
+    gap: 8px;
+    padding: 0 12px;
   }
 
-  .copy-toast { bottom: calc(172px + env(safe-area-inset-bottom)); }
   .debug-app { right: 8px; bottom: calc(172px + env(safe-area-inset-bottom)); max-width: calc(100% - 16px); }
 }
 
@@ -2421,7 +2744,7 @@ input:focus-visible {
   .timeline-event { height: 34px; }
   .timeline-event__label,
   .timeline-sunset,
-  .footer-links { display: none; }
+  .scene-footer { display: none; }
 }
 
 /* ==========================================================================
@@ -2647,8 +2970,8 @@ input:focus-visible {
     padding: 0 52px 0 16px;
     border: 1px solid var(--glass-stroke);
     border-radius: 22px;
-    background: var(--glass-surface);
-    box-shadow: var(--glass-highlight), 0 16px 38px -28px rgb(0 0 0 / 0.95);
+    background: var(--glass-surface-airy);
+    box-shadow: var(--glass-rim), 0 16px 38px -28px rgb(0 0 0 / 0.95);
     backdrop-filter: var(--glass-blur);
     -webkit-backdrop-filter: var(--glass-blur);
   }
@@ -2744,7 +3067,7 @@ input:focus-visible {
   /* Street View is full-bleed beneath the floating tabs. The map retains its
      former reserved footer space so native Google attribution stays clear. */
   .map-panel {
-    bottom: calc(86px + env(safe-area-inset-bottom));
+    bottom: calc(96px + env(safe-area-inset-bottom));
   }
 
   .street-scene__panorama {
@@ -2776,7 +3099,9 @@ input:focus-visible {
       transparent 100%
     );
     pointer-events: none;
-    transition: opacity 70ms linear;
+    /* Long enough that pressing play reads as the light falling, not as a
+       filter being switched on; short enough to still track the scrub. */
+    transition: opacity 420ms var(--ease);
   }
 
   .mobile-photo-gradients {
@@ -2784,11 +3109,16 @@ input:focus-visible {
     z-index: 8;
     inset: 0;
     display: block;
+    /* The bottom third carries the clock, the dial, the view switcher and the
+       safety line, all in white over whatever the photograph happens to show
+       there. This shade is what makes them readable — enough to lift the
+       contrast, not enough to read as a panel with an edge. */
     background: linear-gradient(
       0deg,
-      rgb(4 6 12 / 0.46),
-      rgb(4 6 12 / 0.24) 38%,
-      transparent min(70%, 420px)
+      rgb(4 6 12 / 0.66),
+      rgb(4 6 12 / 0.46) 14%,
+      rgb(4 6 12 / 0.22) 30%,
+      transparent min(64%, 400px)
     );
     /* This base shade reaches the physical bottom of the viewport. The
        stronger eclipse veil still fades before Google's legal row, but the
@@ -2868,8 +3198,10 @@ input:focus-visible {
     transition: transform 70ms linear;
   }
 
+  /* Marker half-width, connector and figures together have to fit inside half
+     the screen, or the callout is sliced off whichever edge it points at. */
   .sun-marker__mobile-line {
-    width: 28px;
+    width: 20px;
     height: 1px;
     flex: 0 0 auto;
     background: linear-gradient(90deg, rgb(255 255 255 / 0.4), rgb(255 255 255 / 0.14));
@@ -2881,7 +3213,7 @@ input:focus-visible {
 
   .sun-marker__mobile-figures {
     display: flex;
-    width: 118px;
+    width: 108px;
     flex: 0 0 auto;
     flex-direction: column;
     align-items: flex-start;
@@ -2943,27 +3275,70 @@ input:focus-visible {
   }
 
   .timeline,
-  .footer-links {
+  .scene-footer {
     display: none;
   }
 
+  /* The reminder reads as the page's footer, on the last line under the view
+     switcher, where a footer belongs. A pill there would be a second capsule
+     directly beneath the tab bar's, so it is set as plain type over the bottom
+     shade instead — quiet, but the last thing before you look up. */
+  .safety-chip {
+    position: fixed;
+    z-index: 15;
+    bottom: calc(9px + env(safe-area-inset-bottom));
+    left: 50%;
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 4px 8px;
+    border: 0;
+    color: rgb(255 215 155 / 0.82);
+    background: transparent;
+    transform: translateX(-50%);
+    cursor: pointer;
+    white-space: nowrap;
+    font-size: 9px;
+    font-weight: 500;
+    letter-spacing: 0.05em;
+    text-transform: none;
+  }
+
+  .safety-chip svg {
+    flex: 0 0 auto;
+    opacity: 0.8;
+  }
+
+  .safety-chip b {
+    font-family: var(--font-mono);
+    font-weight: 500;
+  }
+
+  .safety-chip:active {
+    color: #ffd79b;
+  }
+
+  /* Sized to its content rather than to a round number: the leftover height of
+     a taller box fell at the bottom, opening a gap between the dial and the
+     view switcher that read as a mistake. */
   .mobile-timeline-layer {
     position: absolute;
     z-index: 12;
     right: 0;
-    bottom: calc(88px + env(safe-area-inset-bottom));
+    bottom: calc(94px + env(safe-area-inset-bottom));
     left: 0;
     display: block;
-    height: 280px;
+    height: 250px;
     opacity: 0;
     pointer-events: none;
     visibility: hidden;
-    transition: opacity 180ms ease;
+    transition: opacity 220ms var(--ease), visibility 0s linear 220ms;
   }
 
   .mobile-timeline-layer.is-visible {
     opacity: 1;
     visibility: visible;
+    transition: opacity 220ms var(--ease), visibility 0s;
   }
 
   .mobile-timeline {
@@ -3020,15 +3395,16 @@ input:focus-visible {
   .mobile-dial {
     position: relative;
     width: 300px;
-    height: 190px;
-    margin-top: 10px;
+    height: 200px;
+    margin-top: 2px;
   }
 
+  /* Tall enough to clear the end labels, which now sit below the handle. */
   .mobile-dial__surface {
     position: absolute;
     inset: 0 auto auto 0;
     width: 300px;
-    height: 178px;
+    height: 190px;
     overflow: hidden;
     touch-action: none;
     pointer-events: auto;
@@ -3083,9 +3459,12 @@ input:focus-visible {
     fill: #fff;
   }
 
+  /* Clear of the arc: the track ends at y=150 and the handle ring reaches
+     y=165.5 at either extremity, so the labels start below both rather than
+     sitting on the endpoints. */
   .mobile-dial__time {
     position: absolute;
-    top: 151px;
+    top: 174px;
     color: rgb(255 255 255 / 0.42);
     font-family: var(--font-mono);
     font-size: 10px;
@@ -3093,8 +3472,8 @@ input:focus-visible {
     line-height: 1;
   }
 
-  .mobile-dial__time--start { left: 34px; }
-  .mobile-dial__time--end { right: 34px; }
+  .mobile-dial__time--start { left: 12px; }
+  .mobile-dial__time--end { right: 12px; }
 
   .mobile-dial__play {
     position: absolute;
@@ -3122,11 +3501,11 @@ input:focus-visible {
   .mobile-tabs {
     z-index: 14;
     right: auto;
-    bottom: calc(24px + env(safe-area-inset-bottom));
+    bottom: calc(32px + env(safe-area-inset-bottom));
     left: 50%;
     display: grid;
     width: min(calc(100% - 44px), 420px);
-    height: 52px;
+    height: 56px;
     grid-template-columns: 1fr 1fr;
     gap: 0;
     padding: 4px;
@@ -3192,10 +3571,6 @@ input:focus-visible {
     outline-offset: -4px;
   }
 
-  .copy-toast {
-    bottom: calc(104px + env(safe-area-inset-bottom));
-  }
-
   .map-legend {
     top: calc(104px + env(safe-area-inset-top));
     left: 12px;
@@ -3224,8 +3599,14 @@ input:focus-visible {
 
 @media (max-height: 700px) and (orientation: portrait) and (max-width: 860px) {
   .mobile-timeline-layer {
-    bottom: calc(76px + env(safe-area-inset-bottom));
+    bottom: calc(85px + env(safe-area-inset-bottom));
     height: 200px;
+  }
+
+  .safety-chip {
+    bottom: calc(5px + env(safe-area-inset-bottom));
+    padding: 3px 8px;
+    font-size: 8.5px;
   }
 
   .mobile-timeline__clock strong {
@@ -3253,7 +3634,7 @@ input:focus-visible {
   }
 
   .mobile-tabs {
-    bottom: calc(24px + env(safe-area-inset-bottom));
+    bottom: calc(27px + env(safe-area-inset-bottom));
   }
 }
 
@@ -3282,6 +3663,12 @@ input:focus-visible {
 
   .map-panel {
     bottom: calc(72px + env(safe-area-inset-bottom));
+  }
+
+  /* Landscape has no spare line under the switcher; the reminder stays in the
+     About panel, which the title menu still reaches. */
+  .safety-chip {
+    display: none;
   }
 
   .mobile-timeline-layer {
@@ -3355,7 +3742,11 @@ input:focus-visible {
 @media (min-width: 861px) {
   :root {
     --desk-gutter: clamp(24px, 3.7vw, 58px);
-    --dock-bottom: clamp(40px, 4.7vh, 48px);
+    /* The footer bar is its own baseline, ~32px tall and 11px off the bottom
+       edge. The deck has to clear that whole band or the timeline card lands
+       right on top of it — which it did, by about nine pixels. */
+    --footer-band: 43px;
+    --dock-bottom: calc(var(--footer-band) + clamp(22px, 2.8vh, 32px));
   }
 
   /* Keep desktop overlays in the shell's stacking context: the expanded map
@@ -3465,7 +3856,7 @@ input:focus-visible {
     padding-right: 22px;
     padding-left: 22px;
     border-color: var(--glass-stroke);
-    background: var(--glass-surface);
+    background: var(--glass-surface-airy);
     box-shadow: var(--glass-highlight), 0 16px 44px -32px rgb(0 0 0 / 0.96);
     backdrop-filter: blur(28px) saturate(1.55);
     -webkit-backdrop-filter: blur(28px) saturate(1.55);
@@ -3612,18 +4003,25 @@ input:focus-visible {
     pointer-events: none;
   }
 
+  /* One surface, one hairline, one shadow. The gradient, the doubled inset
+     highlight and the tinted weather strip stacked into something that read as
+     three panes of glass; the figures carry the panel instead. */
   .scene-readout {
     position: relative;
     z-index: auto;
     inset: auto;
     width: 100%;
     min-height: 224px;
-    border: 1px solid var(--glass-stroke);
+    border: 1px solid var(--stroke);
     border-radius: 24px;
-    background: var(--glass-surface-strong);
-    box-shadow: var(--glass-highlight);
+    background: var(--surface-strong);
+    box-shadow: var(--shadow-float);
     backdrop-filter: blur(18px) saturate(1.26);
     -webkit-backdrop-filter: blur(18px) saturate(1.26);
+  }
+
+  .weather--strip {
+    background: transparent;
   }
 
   .readout {
@@ -3719,7 +4117,7 @@ input:focus-visible {
     inset: auto;
     display: block;
     width: 100%;
-    height: 132px;
+    height: 144px;
     padding: 15px 24px 13px;
     border: 1px solid var(--glass-stroke);
     border-radius: 30px;
@@ -3757,9 +4155,11 @@ input:focus-visible {
     transform: translate(-50%, -50%);
   }
 
+  /* Tall enough to hold the maximum marker, which hangs below the track: at
+     50px its label overflowed the card and sat on the bottom edge. */
   .timeline__track-wrap {
     position: relative;
-    height: 50px;
+    height: 62px;
     margin-top: 6px;
   }
 
@@ -3816,11 +4216,11 @@ input:focus-visible {
   .timeline-maximum {
     display: flex;
     min-width: 58px;
-    min-height: 32px;
+    min-height: 28px;
     align-items: flex-end;
     justify-content: center;
     gap: 4px;
-    padding: 12px 4px 0;
+    padding: 11px 4px 0;
     border: 0;
     color: #f5b942;
     background: transparent;
@@ -4011,10 +4411,6 @@ input:focus-visible {
     );
     pointer-events: none;
   }
-
-  .footer-links {
-    display: none;
-  }
 }
 
 @media (min-width: 861px) and (max-width: 1180px) {
@@ -4051,7 +4447,7 @@ input:focus-visible {
   }
 
   .timeline {
-    height: 118px;
+    height: 130px;
     padding: 13px 18px 11px;
   }
 
@@ -4069,7 +4465,7 @@ input:focus-visible {
   }
 
   .timeline__track-wrap {
-    height: 46px;
+    height: 58px;
     margin-top: 4px;
   }
 
@@ -4080,7 +4476,9 @@ input:focus-visible {
 
 @media (min-width: 861px) and (max-height: 780px) {
   :root {
-    --dock-bottom: 40px;
+    /* Short screens give the deck less air, but never less than the footer's
+       own band — overlapping it is worse than sitting close to it. */
+    --dock-bottom: calc(var(--footer-band) + 14px);
   }
 
   .app-header {
@@ -4121,7 +4519,7 @@ input:focus-visible {
   }
 
   .timeline {
-    height: 108px;
+    height: 122px;
     padding: 12px 18px 10px;
   }
 
@@ -4139,7 +4537,7 @@ input:focus-visible {
   }
 
   .timeline__track-wrap {
-    height: 42px;
+    height: 56px;
     margin-top: 0;
   }
 
@@ -4162,10 +4560,12 @@ input:focus-visible {
      attribution row. A lighter non-blurring base shade continues behind it,
      avoiding a bright strip while keeping the legal copy readable. */
   .street-scene__stage {
-    /* Only the native attribution row is kept outside the strong eclipse veil.
-       The base mobile shade above still covers this area without any blur. */
-    --gmp-safe-bottom: 28px;
-    --gmp-feather: 24px;
+    /* The dusk reaches the physical bottom of the screen. Sparing the last
+       52px left a bright strip that read as a background colour rather than as
+       part of the photograph; the attribution sits above every veil anyway, so
+       it stays legible without carving a hole in them. */
+    --gmp-safe-bottom: 0px;
+    --gmp-feather: 0px;
   }
 }
 
