@@ -3,10 +3,13 @@ import type {
   StreetLevelPanoramaImage,
   StreetLevelTile,
 } from './types'
+import { isAbortError, waitForRetry } from './retry'
 
 const TILE_ENDPOINT = 'https://streetviewpixels-pa.googleapis.com/v1/tile'
 const MAX_IMAGE_CACHE_ENTRIES = 3
-const TILE_CONCURRENCY = 8
+const TILE_CONCURRENCY = 4
+const TILE_MAX_ATTEMPTS = 3
+const TILE_RETRY_DELAY_MS = 250
 export const STREETLEVEL_DEFAULT_ZOOM = 3
 
 type CachedImage = StreetLevelPanoramaImage & { touchedAt: number }
@@ -64,14 +67,35 @@ async function drawTile(
   panorama: StreetLevelPanorama,
   signal?: AbortSignal,
 ): Promise<void> {
-  const response = await fetch(tile.url, {
-    cache: 'force-cache',
-    credentials: 'omit',
-    mode: 'cors',
-    referrerPolicy: 'strict-origin-when-cross-origin',
-    signal,
-  })
-  if (!response.ok) throw new Error(`Tuile Streetlevel indisponible (${response.status})`)
+  let response: Response | null = null
+  for (let attempt = 0; attempt < TILE_MAX_ATTEMPTS; attempt += 1) {
+    try {
+      response = await fetch(tile.url, {
+        cache: 'force-cache',
+        credentials: 'omit',
+        mode: 'cors',
+        referrerPolicy: 'strict-origin-when-cross-origin',
+        signal,
+      })
+    } catch (error) {
+      const finalAttempt = attempt === TILE_MAX_ATTEMPTS - 1
+      if (finalAttempt || isAbortError(error)) throw error
+      await waitForRetry(attempt, TILE_RETRY_DELAY_MS, signal)
+      continue
+    }
+
+    if (response.ok) break
+    const retryableStatus = response.status === 408 ||
+      response.status === 429 ||
+      response.status >= 500
+    const finalAttempt = attempt === TILE_MAX_ATTEMPTS - 1
+    if (!retryableStatus || finalAttempt) {
+      throw new Error(`Tuile Streetlevel indisponible (${response.status})`)
+    }
+    await waitForRetry(attempt, TILE_RETRY_DELAY_MS, signal)
+  }
+
+  if (!response?.ok) throw new Error('Tuile Streetlevel indisponible')
   const decoded = await decodeTile(await response.blob())
   try {
     context.drawImage(
@@ -122,6 +146,11 @@ export async function loadPanoramaImage(
   const context = canvas.getContext('2d', { alpha: false })
   if (!context) throw new Error('Canvas Streetlevel indisponible')
 
+  const loadController = new AbortController()
+  const abortLoad = () => loadController.abort()
+  signal?.addEventListener('abort', abortLoad, { once: true })
+  if (signal?.aborted) loadController.abort()
+
   let nextTile = 0
   const workers = Array.from(
     { length: Math.min(TILE_CONCURRENCY, grid.tiles.length) },
@@ -129,12 +158,21 @@ export async function loadPanoramaImage(
       while (nextTile < grid.tiles.length) {
         const tile = grid.tiles[nextTile]
         nextTile += 1
-        if (signal?.aborted) throw new DOMException('Chargement annulé', 'AbortError')
-        if (tile) await drawTile(context, tile, panorama, signal)
+        if (loadController.signal.aborted) {
+          throw new DOMException('Chargement annulé', 'AbortError')
+        }
+        if (tile) await drawTile(context, tile, panorama, loadController.signal)
       }
     },
   )
-  await Promise.all(workers)
+  try {
+    await Promise.all(workers)
+  } catch (error) {
+    loadController.abort()
+    throw error
+  } finally {
+    signal?.removeEventListener('abort', abortLoad)
+  }
   const url = URL.createObjectURL(await canvasBlob(canvas))
   const loaded: CachedImage = {
     url,

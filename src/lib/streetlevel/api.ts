@@ -1,11 +1,14 @@
 import { protoDouble, protoEnum, toProtobufUrl } from './protobuf'
 import { parsePanoramaSearchPayload } from './parse'
+import { isAbortError, waitForRetry } from './retry'
 import type { ProtoMessage } from './protobuf'
 import type { StreetLevelPanorama } from './types'
 
 const SEARCH_ENDPOINT = 'https://maps.googleapis.com/maps/api/js/GeoPhotoService.SingleImageSearch'
 const JSONP_REGISTRY = '__eclipseStreetlevelJsonp'
 const DEFAULT_TIMEOUT_MS = 8_000
+const SEARCH_MAX_ATTEMPTS = 2
+const SEARCH_RETRY_DELAY_MS = 300
 let jsonpSequence = 0
 
 const panoramaCache = new Map<string, StreetLevelPanorama | null>()
@@ -53,7 +56,7 @@ function registry(): JsonpRegistry {
   return created
 }
 
-export function requestPanoramaJsonp(
+function requestPanoramaJsonpOnce(
   lat: number,
   lng: number,
   radius: number,
@@ -99,6 +102,34 @@ export function requestPanoramaJsonp(
     if (signal?.aborted) abort()
     else document.head.append(script)
   })
+}
+
+function retryableSearchError(error: unknown): boolean {
+  if (isAbortError(error)) return false
+  return error instanceof Error && (
+    error.message === 'Délai Streetlevel dépassé' ||
+    error.message === 'Recherche Streetlevel indisponible'
+  )
+}
+
+export async function requestPanoramaJsonp(
+  lat: number,
+  lng: number,
+  radius: number,
+  signal?: AbortSignal,
+  timeoutMs = DEFAULT_TIMEOUT_MS,
+): Promise<unknown> {
+  for (let attempt = 0; attempt < SEARCH_MAX_ATTEMPTS; attempt += 1) {
+    try {
+      return await requestPanoramaJsonpOnce(lat, lng, radius, signal, timeoutMs)
+    } catch (error) {
+      const finalAttempt = attempt === SEARCH_MAX_ATTEMPTS - 1
+      if (finalAttempt || !retryableSearchError(error)) throw error
+      await waitForRetry(attempt, SEARCH_RETRY_DELAY_MS, signal)
+    }
+  }
+
+  throw new Error('Recherche Streetlevel indisponible')
 }
 
 export async function findNearestPanorama(
