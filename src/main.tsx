@@ -9,10 +9,17 @@ import { installSentry } from './lib/sentry.ts'
 installSentry()
 installCloudflareWebAnalytics()
 
-createRoot(document.getElementById('root')!).render(
+const rootElement = document.getElementById('root')
+if (!rootElement) throw new Error('Application root element not found')
+
+createRoot(rootElement).render(
   <StrictMode>
     <ErrorBoundary>
       <App />
     </ErrorBoundary>
   </StrictMode>,
 )
+
+// A cheap production smoke-test signal that is only present once the entry
+// bundle has loaded and React has been mounted.
+rootElement.dataset.appMounted = 'true'

@@ -184,7 +184,12 @@ Pour reproduire exactement une installation CI, utilisez `npm ci` plutôt que `n
 6. déployez, puis testez depuis le domaine final le chargement CORS du fond, de la recherche et des tuiles Street View ;
 7. redéployez après toute modification d’une variable `VITE_*`, car elle est incorporée à la compilation.
 
-Le fichier `vercel.json` fournit le fallback SPA vers `index.html` pour les URLs partagées et pose les en-têtes `Referrer-Policy`, `Permissions-Policy`, `X-Content-Type-Options` et `X-Frame-Options`.
+Le fichier `vercel.json` pose les en-têtes `Referrer-Policy`,
+`Permissions-Policy`, `X-Content-Type-Options` et `X-Frame-Options`. Il ne
+réécrit volontairement pas les chemins inconnus vers `index.html` : les URLs
+partagées utilisent uniquement les paramètres de la racine, et un asset absent
+doit rester une erreur 404 non mise en cache plutôt que devenir un document HTML
+servi sous une URL JavaScript.
 
 ### Depuis la CLI
 
