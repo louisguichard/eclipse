@@ -16,6 +16,7 @@ type ViewerPosition = { yaw: number; pitch: number }
 type ViewerListener = () => void
 type FakeViewerShape = {
   destroy: ReturnType<typeof vi.fn>
+  failNextCameraRead: (error: Error) => void
   panoramaOptions: Record<string, unknown> | null
   rotate: ReturnType<typeof vi.fn>
   state: { hFov: number }
@@ -93,6 +94,13 @@ vi.mock('@photo-sphere-viewer/core', () => {
     emitProjection(point: { x: number; y: number }, visible: boolean) {
       this.projectedPoint = point
       this.projectedPointVisible = visible
+      this.dispatch('position-updated')
+    }
+
+    failNextCameraRead(error: Error) {
+      this.getPosition.mockImplementationOnce(() => {
+        throw error
+      })
       this.dispatch('position-updated')
     }
 
@@ -327,5 +335,24 @@ describe('useStreetView with the browser Streetlevel provider', () => {
     })
     expect(view.container.style.getPropertyValue('--street-sun-x')).toBe('72.5%')
     expect(view.container.style.getPropertyValue('--street-sun-y')).toBe('25%')
+  })
+
+  it('contains viewer callback stack overflows instead of leaking a global error', async () => {
+    render(createElement(StreetViewHarness, { snapshot: snapshotAt(284, 8) }))
+    await finishLookup()
+    const viewer = viewerMocks.instances[0]
+    const stackOverflow = new RangeError('Maximum call stack size exceeded.')
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+
+    act(() => viewer.failNextCameraRead(stackOverflow))
+
+    expect(latestStreetView?.panoramaState).toMatchObject({
+      status: 'error',
+      message: expect.stringContaining('ne peut pas être affiché'),
+    })
+    expect(consoleError).toHaveBeenCalledWith('Streetlevel viewer failed', stackOverflow)
+
+    act(() => vi.runOnlyPendingTimers())
+    expect(viewer.destroy).toHaveBeenCalledOnce()
   })
 })

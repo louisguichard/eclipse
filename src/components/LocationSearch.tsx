@@ -194,11 +194,24 @@ export function LocationSearch({ observer, onSelect, autoFocus = false }: Locati
   const listboxOpen = showPopup && results.length > 0
   const busy = status === 'loading' || status === 'resolving'
   const activeResult = activeIndex >= 0 ? results[activeIndex] : null
+  const popupContentKey = query.trim().length < MIN_SEARCH_CHARACTERS
+    ? 'hint'
+    : status === 'error'
+      ? 'error'
+      : status === 'ready' && results.length === 0
+        ? 'empty'
+        : results.length > 0
+          ? 'results'
+          : 'pending'
 
   return (
     <div
       ref={wrapRef}
-      className="location-search-wrap"
+      // Browser translators replace React-owned text nodes and attributes. This
+      // control rerenders on every keystroke, so an external rewrite can make
+      // React remove or insert relative to a node that has already been moved.
+      className="location-search-wrap notranslate"
+      translate="no"
       title={`Position actuelle : ${observer.label}`}
       onBlur={(event) => {
         if (!event.currentTarget.contains(event.relatedTarget)) setOpen(false)
@@ -235,7 +248,7 @@ export function LocationSearch({ observer, onSelect, autoFocus = false }: Locati
       </span>
 
       {showPopup && (
-        <div className="location-search__popup">
+        <div key={popupContentKey} className="location-search__popup">
           {query.trim().length < MIN_SEARCH_CHARACTERS ? (
             <p className="location-search__notice">
               Saisissez encore {MIN_SEARCH_CHARACTERS - query.trim().length} caractère{query.trim().length === MIN_SEARCH_CHARACTERS - 1 ? '' : 's'}.

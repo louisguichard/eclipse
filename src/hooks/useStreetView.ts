@@ -161,6 +161,7 @@ export function useStreetView(
   const onUserPositionChangeRef = useRef(onUserPositionChange)
   const requestTokenRef = useRef(0)
   const cameraFrameRef = useRef<number | null>(null)
+  const viewerFailureRef = useRef(false)
   const followSunRef = useRef(true)
   const applyingCameraRef = useRef(false)
   const targetCameraRef = useRef(sunToStreetViewPov(snapshot.sun, STREET_VIEW.zoom))
@@ -228,13 +229,61 @@ export function useStreetView(
     )
   }, [])
 
+  const quarantineViewer = useCallback((error: unknown) => {
+    if (viewerFailureRef.current) return
+    viewerFailureRef.current = true
+    requestTokenRef.current += 1
+
+    const failedViewer = viewerRef.current
+    viewerRef.current = null
+    panoramaRef.current = null
+    applyingCameraRef.current = false
+    if (cameraFrameRef.current !== null) {
+      window.cancelAnimationFrame(cameraFrameRef.current)
+      cameraFrameRef.current = null
+    }
+
+    // EventTarget reports listener exceptions as global window errors instead
+    // of returning them to dispatchEvent(). Defer teardown so a failing
+    // Photo Sphere Viewer callback can finish unwinding before destroy() runs.
+    window.setTimeout(() => {
+      try {
+        failedViewer?.destroy()
+      } catch (cleanupError) {
+        console.warn('Streetlevel viewer cleanup failed', cleanupError)
+      }
+    }, 0)
+
+    if (!mountedRef.current) return
+    console.error('Streetlevel viewer failed', error)
+    captureOperationalError('streetview-renderer', error)
+    setLinks([])
+    setAttribution(null)
+    setSunViewportPoint(null)
+    setPanoramaState({
+      status: 'error',
+      position: null,
+      distanceMeters: null,
+      radiusMeters: null,
+      message: 'Le panorama ne peut pas être affiché sur cet appareil. La direction du Soleil reste calculée.',
+    })
+  }, [])
+
+  const handleViewerUpdate = useCallback(() => {
+    try {
+      readCameraFromViewer()
+    } catch (error) {
+      quarantineViewer(error)
+    }
+  }, [quarantineViewer, readCameraFromViewer])
+
   const scheduleCameraRead = useCallback(() => {
     if (cameraFrameRef.current !== null) return
     cameraFrameRef.current = window.requestAnimationFrame(() => {
       cameraFrameRef.current = null
-      readCameraFromViewer()
+      handleViewerUpdate()
     })
-  }, [readCameraFromViewer])
+  }, [handleViewerUpdate])
 
   const ensureViewer = useCallback((): Viewer => {
     if (viewerRef.current) return viewerRef.current
@@ -249,28 +298,36 @@ export function useStreetView(
     } catch (error) {
       throw new StreetViewCapabilityError(error)
     }
-    const viewer = new Viewer({
-      container,
-      navbar: false,
-      keyboard: false,
-      loadingTxt: 'Assemblage de la vue…',
-      minFov: 20,
-      maxFov: 80,
-      mousemove: true,
-      mousewheel: true,
-      mousewheelCtrlKey: false,
-      touchmoveTwoFingers: false,
-      canvasBackground: '#07101b',
-    })
+    let viewer: Viewer
+    try {
+      viewer = new Viewer({
+        container,
+        navbar: false,
+        keyboard: false,
+        loadingTxt: 'Assemblage de la vue…',
+        minFov: 20,
+        maxFov: 80,
+        mousemove: true,
+        mousewheel: true,
+        mousewheelCtrlKey: false,
+        touchmoveTwoFingers: false,
+        canvasBackground: '#07101b',
+      })
+    } catch (error) {
+      // A constructor failure can leave PSV markup behind even though no
+      // usable Viewer instance was returned.
+      container.replaceChildren()
+      throw new StreetViewCapabilityError(error)
+    }
     // These events are already emitted on Photo Sphere Viewer's animation
     // frame. Read its camera immediately: another rAF here made the DOM marker
     // trail the WebGL panorama by one frame while dragging.
-    viewer.addEventListener('position-updated', readCameraFromViewer)
-    viewer.addEventListener('zoom-updated', readCameraFromViewer)
-    viewer.addEventListener('size-updated', readCameraFromViewer)
+    viewer.addEventListener('position-updated', handleViewerUpdate)
+    viewer.addEventListener('zoom-updated', handleViewerUpdate)
+    viewer.addEventListener('size-updated', handleViewerUpdate)
     viewerRef.current = viewer
     return viewer
-  }, [readCameraFromViewer])
+  }, [handleViewerUpdate])
 
   const applyCamera = useCallback((resetZoom: boolean) => {
     const viewer = viewerRef.current
@@ -278,18 +335,26 @@ export function useStreetView(
     if (!viewer || !panorama) return
     const target = targetCameraRef.current
     applyingCameraRef.current = true
-    viewer.rotate({
-      yaw: headingToViewerYaw(target.heading, panorama.heading),
-      pitch: target.pitch * DEG_TO_RAD,
-    })
-    if (resetZoom) viewer.zoom(viewerZoomForStreetZoom(viewer, target.zoom))
+    try {
+      viewer.rotate({
+        yaw: headingToViewerYaw(target.heading, panorama.heading),
+        pitch: target.pitch * DEG_TO_RAD,
+      })
+      if (viewerRef.current !== viewer) return
+      if (resetZoom) viewer.zoom(viewerZoomForStreetZoom(viewer, target.zoom))
+    } catch (error) {
+      quarantineViewer(error)
+      return
+    }
+    if (viewerRef.current !== viewer) return
     setCamera(target)
     setCentered(true)
     window.requestAnimationFrame(() => {
+      if (viewerRef.current !== viewer) return
       applyingCameraRef.current = false
       scheduleCameraRead()
     })
-  }, [scheduleCameraRead])
+  }, [quarantineViewer, scheduleCameraRead])
 
   const displayPanorama = useCallback(async (
     lookup: PanoramaLookup,
@@ -303,23 +368,31 @@ export function useStreetView(
     const panorama = lookup.panorama
     panoramaRef.current = panorama
     applyingCameraRef.current = true
-    const displayed = await viewer.setPanorama(image.url, {
-      panoData: panoData(image),
-      position: {
-        yaw: headingToViewerYaw(target.heading, panorama.heading),
-        pitch: target.pitch * DEG_TO_RAD,
-      },
-      sphereCorrection: {
-        tilt: panorama.pitchCorrection * DEG_TO_RAD,
-        roll: panorama.rollCorrection * DEG_TO_RAD,
-      },
-      transition: false,
-      zoom: viewerZoomForStreetZoom(viewer, target.zoom),
-    })
-    applyingCameraRef.current = false
-    if (!displayed || !mountedRef.current || requestToken !== requestTokenRef.current) return
+    let displayed = false
+    try {
+      displayed = await viewer.setPanorama(image.url, {
+        panoData: panoData(image),
+        position: {
+          yaw: headingToViewerYaw(target.heading, panorama.heading),
+          pitch: target.pitch * DEG_TO_RAD,
+        },
+        sphereCorrection: {
+          tilt: panorama.pitchCorrection * DEG_TO_RAD,
+          roll: panorama.rollCorrection * DEG_TO_RAD,
+        },
+        transition: false,
+        zoom: viewerZoomForStreetZoom(viewer, target.zoom),
+      })
+      if (!displayed || viewerRef.current !== viewer) return
+      viewer.autoSize()
+    } catch (error) {
+      quarantineViewer(error)
+      return
+    } finally {
+      if (viewerRef.current === viewer) applyingCameraRef.current = false
+    }
+    if (!mountedRef.current || requestToken !== requestTokenRef.current) return
 
-    viewer.autoSize()
     setCamera(target)
     setCentered(true)
     setAttribution(panoramaAttribution(panorama))
@@ -335,7 +408,7 @@ export function useStreetView(
       radiusMeters: lookup.radiusMeters,
     })
     scheduleCameraRead()
-  }, [ensureViewer, scheduleCameraRead])
+  }, [ensureViewer, quarantineViewer, scheduleCameraRead])
 
   useEffect(() => {
     mountedRef.current = true
@@ -346,9 +419,14 @@ export function useStreetView(
         window.cancelAnimationFrame(cameraFrameRef.current)
         cameraFrameRef.current = null
       }
-      viewerRef.current?.destroy()
+      const viewer = viewerRef.current
       viewerRef.current = null
       panoramaRef.current = null
+      try {
+        viewer?.destroy()
+      } catch (error) {
+        console.warn('Streetlevel viewer cleanup failed', error)
+      }
     }
   }, [])
 
@@ -362,7 +440,13 @@ export function useStreetView(
       setViewportSize((previous) =>
         previous.width === width && previous.height === height ? previous : { width, height },
       )
-      if (width > 0 && height > 0) viewerRef.current?.autoSize()
+      if (width > 0 && height > 0) {
+        try {
+          viewerRef.current?.autoSize()
+        } catch (error) {
+          quarantineViewer(error)
+        }
+      }
     }
     measure()
 
@@ -373,7 +457,7 @@ export function useStreetView(
     }
     window.addEventListener('resize', measure)
     return () => window.removeEventListener('resize', measure)
-  }, [])
+  }, [quarantineViewer])
 
   useEffect(() => {
     const container = containerRef.current
@@ -402,6 +486,7 @@ export function useStreetView(
   useEffect(() => {
     const requestToken = requestTokenRef.current + 1
     requestTokenRef.current = requestToken
+    viewerFailureRef.current = false
     const controller = new AbortController()
     followSunRef.current = true
     setLinks([])
@@ -476,9 +561,14 @@ export function useStreetView(
 
   useEffect(() => {
     if (!active) return
-    viewerRef.current?.autoSize()
+    try {
+      viewerRef.current?.autoSize()
+    } catch (error) {
+      quarantineViewer(error)
+      return
+    }
     scheduleCameraRead()
-  }, [active, scheduleCameraRead])
+  }, [active, quarantineViewer, scheduleCameraRead])
 
   const recenter = useCallback(() => {
     followSunRef.current = true

@@ -85,6 +85,33 @@ describe('LocationSearch', () => {
     expect(view.getAllByRole('option')).toHaveLength(2)
   })
 
+  it('isolates dynamic results from browser translation DOM rewrites', async () => {
+    const view = render(<LocationSearch observer={OBSERVER} onSelect={vi.fn()} />)
+    const input = view.getByRole('combobox')
+    const search = view.container.querySelector('.location-search-wrap')
+
+    expect(search?.getAttribute('translate')).toBe('no')
+    expect(search?.classList.contains('notranslate')).toBe(true)
+
+    fireEvent.change(input, { target: { value: 'Pa' } })
+    const originalPopup = view.container.querySelector('.location-search__popup')
+    const notice = view.getByText('Saisissez encore 1 caractère.')
+    const translatedWrapper = document.createElement('font')
+    originalPopup?.insertBefore(translatedWrapper, notice)
+    translatedWrapper.appendChild(notice)
+
+    expect(() => {
+      fireEvent.change(input, { target: { value: 'Paris' } })
+    }).not.toThrow()
+
+    const replacementPopup = view.container.querySelector('.location-search__popup')
+    expect(replacementPopup).not.toBe(originalPopup)
+    expect(view.container.contains(translatedWrapper)).toBe(false)
+
+    await act(async () => vi.advanceTimersByTimeAsync(320))
+    expect(view.getAllByRole('option')).toHaveLength(2)
+  })
+
   it('aborts an obsolete request as soon as the query changes', async () => {
     let firstSignal: AbortSignal | undefined
     searchMocks.searchLocations.mockImplementationOnce(
