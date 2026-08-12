@@ -3,6 +3,31 @@ import type { ErrorEvent } from '@sentry/react'
 
 const OPERATIONAL_ERROR_SAMPLE_RATE = 0.05
 const UNCLASSIFIED_ERROR_SAMPLE_RATE = 0.05
+const MAPLIBRE_SHADER_COMPILATION_ERROR =
+  /^(?:Could not compile (?:fragment|vertex) shader|Program failed to link):/
+
+function isMapLibreFrame(filename?: string, absolutePath?: string): boolean {
+  return [filename, absolutePath].some((value) => value?.includes('maplibre-gl') === true)
+}
+
+/** Detects a MapLibre shader failure thrown outside its public error events. */
+export function isMapLibreShaderCompilationError(error: unknown): boolean {
+  if (!(error instanceof Error) || !MAPLIBRE_SHADER_COMPILATION_ERROR.test(error.message)) {
+    return false
+  }
+  return error.stack?.includes('maplibre-gl') === true
+}
+
+/** Detects the original unhandled event before it is recaptured as operational. */
+export function isUnhandledMapLibreShaderCompilationError(event: ErrorEvent): boolean {
+  if (event.tags?.failure_area) return false
+  return (event.exception?.values ?? []).some(({ value, stacktrace }) =>
+    MAPLIBRE_SHADER_COMPILATION_ERROR.test(value ?? '') &&
+    stacktrace?.frames?.some(({ filename, abs_path: absolutePath }) =>
+      isMapLibreFrame(filename, absolutePath),
+    ) === true,
+  )
+}
 
 /** Detects navigation trackers injected by Android WebViews serializing React DOM nodes. */
 export function isInjectedAnchorSerializationError(event: ErrorEvent): boolean {
@@ -65,6 +90,11 @@ export function installSentry(): boolean {
     beforeSend(event) {
       delete event.user
       if (isInjectedAnchorSerializationError(event)) return null
+      // MapLibre throws shader failures from requestAnimationFrame rather than
+      // emitting them through map.on('error'). MapView catches the matching
+      // window error and recaptures it with a failure_area tag; discard only
+      // this original unhandled duplicate.
+      if (isUnhandledMapLibreShaderCompilationError(event)) return null
       if (event.request) {
         if (event.request.url) event.request.url = withoutQuery(event.request.url)
         delete event.request.query_string

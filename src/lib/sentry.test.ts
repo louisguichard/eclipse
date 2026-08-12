@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import type { ErrorEvent } from '@sentry/react'
-import { isInjectedAnchorSerializationError } from './sentry'
+import {
+  isInjectedAnchorSerializationError,
+  isMapLibreShaderCompilationError,
+  isUnhandledMapLibreShaderCompilationError,
+} from './sentry'
 
 const INJECTED_ERROR = [
   'Converting circular structure to JSON',
@@ -37,5 +41,32 @@ describe('Sentry browser-noise filtering', () => {
     expect(isInjectedAnchorSerializationError(eventWith(
       'Converting circular structure to JSON --> starting at object with constructor Object',
     ))).toBe(false)
+  })
+
+  it('recognizes MapLibre shader failures from the runtime error stack', () => {
+    const error = new Error('Could not compile fragment shader: null')
+    error.stack = 'Error: shader\n at GT (https://example.test/assets/maplibre-gl-abc.js:1:2)'
+
+    expect(isMapLibreShaderCompilationError(error)).toBe(true)
+    expect(isMapLibreShaderCompilationError(new Error(error.message))).toBe(false)
+  })
+
+  it('drops only the original unhandled MapLibre shader event', () => {
+    const event: ErrorEvent = {
+      type: undefined,
+      exception: {
+        values: [{
+          type: 'Error',
+          value: 'Could not compile fragment shader:',
+          stacktrace: { frames: [{ filename: '/assets/maplibre-gl-abc.js' }] },
+        }],
+      },
+    }
+
+    expect(isUnhandledMapLibreShaderCompilationError(event)).toBe(true)
+    expect(isUnhandledMapLibreShaderCompilationError({
+      ...event,
+      tags: { failure_area: 'basemap-renderer' },
+    })).toBe(false)
   })
 })

@@ -26,6 +26,7 @@ const mocks = vi.hoisted(() => ({
   }>,
   resolveBasemapStyle: vi.fn(async () => 'https://example.test/dark-style.json'),
   setWorkerUrl: vi.fn(),
+  captureOperationalError: vi.fn(),
 }))
 
 // Only the style resolution is stubbed; the land repaint runs for real so the
@@ -33,6 +34,11 @@ const mocks = vi.hoisted(() => ({
 vi.mock('../lib/mapLibreBasemap', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../lib/mapLibreBasemap')>()),
   resolveBasemapStyle: mocks.resolveBasemapStyle,
+}))
+
+vi.mock('../lib/sentry', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../lib/sentry')>()),
+  captureOperationalError: mocks.captureOperationalError,
 }))
 
 vi.mock('maplibre-gl', () => {
@@ -285,5 +291,28 @@ describe('MapView MapLibre lifecycle', () => {
     expect(mocks.markers).toHaveLength(0)
     expect(consoleError).not.toHaveBeenCalled()
     expect(() => unmount()).not.toThrow()
+  })
+
+  it('handles a late MapLibre shader failure and releases the broken map', async () => {
+    render(
+      <MapView observer={OBSERVER} snapshot={SNAPSHOT} active onLocationChange={vi.fn()} />,
+    )
+    await waitFor(() => expect(mocks.maps).toHaveLength(1))
+    const map = mocks.maps[0]
+    const error = new Error('Could not compile fragment shader: null')
+    error.stack = 'Error: shader\n at GT (https://example.test/assets/maplibre-gl-abc.js:1:2)'
+
+    act(() => {
+      window.dispatchEvent(new ErrorEvent('error', {
+        cancelable: true,
+        error,
+        message: error.message,
+      }))
+    })
+
+    expect(await screen.findByText('Fond de carte indisponible')).toBeDefined()
+    expect(map.remove).toHaveBeenCalledOnce()
+    expect(mocks.markers[0].remove).toHaveBeenCalledOnce()
+    expect(mocks.captureOperationalError).toHaveBeenCalledWith('basemap-renderer', error)
   })
 })

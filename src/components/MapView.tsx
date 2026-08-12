@@ -15,7 +15,7 @@ import { formatLocalTime } from '../lib/format'
 import { applyBasemapLandTone, resolveBasemapStyle } from '../lib/mapLibreBasemap'
 import { createVisibilityRasterDefinition } from '../lib/mapLibreVisibility'
 import { ensureVisibilityTileProtocol } from '../lib/mapLibreVisibilityProtocol'
-import { captureOperationalError } from '../lib/sentry'
+import { captureOperationalError, isMapLibreShaderCompilationError } from '../lib/sentry'
 import {
   knownVisibilityCoverageAtPoint,
   preferredVisibilityDatasetAtPoint,
@@ -353,6 +353,42 @@ export function MapView({
     let handleClick: ((event: MapMouseEvent) => void) | null = null
     let handleMoveEnd: (() => void) | null = null
     let handleError: ((event: MapLibreErrorEvent) => void) | null = null
+    let rendererFailed = false
+
+    function releaseMap() {
+      const map = initializedMap
+      const marker = initializedMarker
+      initializedMap = null
+      initializedMarker = null
+      if (map && handleClick) map.off('click', handleClick)
+      if (map && handleMoveEnd) map.off('moveend', handleMoveEnd)
+      if (map && handleError) map.off('error', handleError)
+      if (map && handleLoad) map.off('load', handleLoad)
+      marker?.remove()
+      if (markerRef.current === marker) markerRef.current = null
+      try {
+        map?.remove()
+      } catch (error) {
+        console.warn('MapLibre cleanup failed', error)
+      }
+      if (mapRef.current === map) mapRef.current = null
+      initializedVisibilityLayerIds.clear()
+      activeVisibilityKeyRef.current = null
+    }
+
+    function handleWindowError(event: globalThis.ErrorEvent) {
+      if (cancelled || rendererFailed || !isMapLibreShaderCompilationError(event.error)) return
+      rendererFailed = true
+      // MapLibre 6 rethrows shader failures from its animation frame instead
+      // of forwarding them to map.on('error'). The context was created, so
+      // fall back only after this specific late GPU failure.
+      event.preventDefault()
+      captureOperationalError('basemap-renderer', event.error)
+      releaseMap()
+      setStatus('error')
+    }
+
+    window.addEventListener('error', handleWindowError)
 
     async function initializeMap() {
       setStatus('loading')
@@ -478,16 +514,8 @@ export function MapView({
     void initializeMap()
     return () => {
       cancelled = true
-      if (initializedMap && handleClick) initializedMap.off('click', handleClick)
-      if (initializedMap && handleMoveEnd) initializedMap.off('moveend', handleMoveEnd)
-      if (initializedMap && handleError) initializedMap.off('error', handleError)
-      if (initializedMap && handleLoad) initializedMap.off('load', handleLoad)
-      initializedMarker?.remove()
-      if (markerRef.current === initializedMarker) markerRef.current = null
-      initializedMap?.remove()
-      if (mapRef.current === initializedMap) mapRef.current = null
-      initializedVisibilityLayerIds.clear()
-      activeVisibilityKeyRef.current = null
+      window.removeEventListener('error', handleWindowError)
+      releaseMap()
     }
   }, [shouldInitialize, syncVisibilityLayers])
 
