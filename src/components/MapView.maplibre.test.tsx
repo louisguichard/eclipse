@@ -1,6 +1,6 @@
 /** @vitest-environment jsdom */
 
-import { act, cleanup, render, waitFor } from '@testing-library/react'
+import { act, cleanup, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { BASEMAP_BUILDING_COLOR, BASEMAP_LAND_COLOR } from '../lib/mapLibreBasemap'
 import type { EclipseSnapshot, ObserverLocation } from '../types'
@@ -214,9 +214,15 @@ beforeEach(() => {
   mocks.markers.length = 0
   vi.clearAllMocks()
   installMatchMedia(false)
+  vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue({
+    getExtension: vi.fn(() => ({ loseContext: vi.fn() })),
+  } as unknown as WebGL2RenderingContext)
 })
 
-afterEach(cleanup)
+afterEach(() => {
+  cleanup()
+  vi.restoreAllMocks()
+})
 
 describe('MapView MapLibre lifecycle', () => {
   it('lazy-loads on mobile and initializes once the Carte tab is active', async () => {
@@ -264,5 +270,20 @@ describe('MapView MapLibre lifecycle', () => {
     unmount()
     expect(map.remove).toHaveBeenCalledOnce()
     expect(mocks.markers[0].remove).toHaveBeenCalledOnce()
+  })
+
+  it('uses the fallback without constructing a partial map when WebGL 2 is unavailable', async () => {
+    vi.mocked(HTMLCanvasElement.prototype.getContext).mockReturnValue(null)
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+
+    const { unmount } = render(
+      <MapView observer={OBSERVER} snapshot={SNAPSHOT} active onLocationChange={vi.fn()} />,
+    )
+
+    expect(await screen.findByText('Fond de carte indisponible')).toBeDefined()
+    expect(mocks.maps).toHaveLength(0)
+    expect(mocks.markers).toHaveLength(0)
+    expect(consoleError).not.toHaveBeenCalled()
+    expect(() => unmount()).not.toThrow()
   })
 })

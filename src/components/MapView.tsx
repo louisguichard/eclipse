@@ -45,6 +45,34 @@ const SOLAR_RAY_LAYER_ID = 'solar-direction-layer'
 const SOLAR_TRAJECTORY_SOURCE_ID = 'solar-trajectory-source'
 const SOLAR_TRAJECTORY_LAYER_ID = 'solar-trajectory-layer'
 
+class MapCapabilityError extends Error {
+  constructor(cause?: unknown) {
+    super('WebGL 2 indisponible pour la carte.', { cause })
+    this.name = 'MapCapabilityError'
+  }
+}
+
+function assertMapWebGLSupport(): void {
+  const canvas = document.createElement('canvas')
+  try {
+    const context = canvas.getContext('webgl2', {
+      alpha: true,
+      antialias: false,
+      depth: true,
+      failIfMajorPerformanceCaveat: false,
+      powerPreference: 'high-performance',
+      premultipliedAlpha: true,
+      preserveDrawingBuffer: false,
+      stencil: true,
+    })
+    if (!context) throw new MapCapabilityError()
+    context.getExtension('WEBGL_lose_context')?.loseContext()
+  } catch (error) {
+    if (error instanceof MapCapabilityError) throw error
+    throw new MapCapabilityError(error)
+  }
+}
+
 type LineData = Parameters<GeoJSONSource['setData']>[0]
 
 function lineData(points: ReadonlyArray<{ lat: number; lng: number }>): LineData {
@@ -342,6 +370,10 @@ export function MapView({
         const host = hostRef.current
         if (cancelled || !host) return
 
+        // MapLibre returns a partially initialized Map when WebGL creation
+        // fails. Its remove() method then dereferences the missing painter.
+        // Probe with the same required context attributes before construction.
+        assertMapWebGLSupport()
         const map = new maplibre.Map({
           container: host,
           style,
@@ -433,6 +465,10 @@ export function MapView({
         map.on('error', handleError)
         map.once('load', handleLoad)
       } catch (error) {
+        if (error instanceof MapCapabilityError) {
+          if (!cancelled) setStatus('error')
+          return
+        }
         console.error('MapLibre failed to initialize', error)
         captureOperationalError('basemap', error)
         if (!cancelled) setStatus('error')
