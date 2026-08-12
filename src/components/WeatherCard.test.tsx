@@ -35,7 +35,10 @@ describe('WeatherCard', () => {
     expect(screen.getByText('34°')).toBeInTheDocument()
     expect(screen.getByText('Ciel dégagé')).toBeInTheDocument()
     expect(screen.getByText('20:00 · 8 % nuages')).toBeInTheDocument()
-    expect(screen.getByRole('link', { name: /Données Open-Meteo/ })).toHaveAttribute('href', 'https://open-meteo.com/')
+    expect(screen.getByRole('link', { name: /Données WeatherAPI.com/ })).toHaveAttribute(
+      'href',
+      'https://www.weatherapi.com/',
+    )
   })
 
   it('shows a compact error instead of a blank card', () => {

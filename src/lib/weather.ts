@@ -1,4 +1,4 @@
-import { WEATHER, WEATHER_HOURLY_VARIABLES } from '../config/weather'
+import { WEATHER } from '../config/weather'
 import type { LatLng } from '../types'
 import type {
   WeatherCondition,
@@ -12,6 +12,7 @@ type FetchWeatherOptions = {
   signal?: AbortSignal
   fetcher?: typeof fetch
   endpoint?: string
+  apiKey?: string
 }
 
 type FetchTimeZoneOptions = FetchWeatherOptions
@@ -30,19 +31,12 @@ type TimeZoneCacheEntry = {
   timeZone: string
 }
 
-type OpenMeteoResponse = {
-  latitude?: unknown
-  longitude?: unknown
-  elevation?: unknown
-  timezone?: unknown
-  utc_offset_seconds?: unknown
-  hourly?: unknown
-}
-
 const weatherCache = new Map<string, CacheEntry>()
 const timeZoneCache = new Map<string, TimeZoneCacheEntry>()
-const SAFE_FORECAST_FUTURE_DAYS = 14
-const SAFE_FORECAST_PAST_DAYS = 90
+// The free WeatherAPI.com plan returns today plus two forecast days. One day
+// of tolerance covers locations across the international date line.
+const SAFE_FORECAST_FUTURE_DAYS = 2
+const SAFE_FORECAST_PAST_DAYS = 1
 
 export class WeatherForecastError extends Error {
   readonly kind: WeatherErrorKind
@@ -56,6 +50,26 @@ export class WeatherForecastError extends Error {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null
+}
+
+function finiteNumber(value: unknown): number | null {
+  if (typeof value === 'number' && Number.isFinite(value)) return value
+  if (typeof value === 'string' && value.trim() !== '') {
+    const parsed = Number(value)
+    if (Number.isFinite(parsed)) return parsed
+  }
+  return null
+}
+
+function requiredNumber(value: unknown, field: string): number {
+  const number = finiteNumber(value)
+  if (number === null) {
+    throw new WeatherForecastError(
+      'invalid-response',
+      `La réponse météo ne contient pas de valeur valide pour « ${field} ».`,
+    )
+  }
+  return number
 }
 
 function readTimeZone(value: unknown): string {
@@ -76,67 +90,15 @@ function readTimeZone(value: unknown): string {
   return value
 }
 
-function isNullableNumberArray(value: unknown): value is Array<number | null> {
-  return Array.isArray(value) && value.every((item) => item === null || Number.isFinite(item))
-}
-
-function readHourlyData(value: unknown): WeatherHourlyData {
-  if (!isRecord(value)) {
-    throw new WeatherForecastError('invalid-response', 'La réponse météo ne contient pas de série horaire valide.')
+function requireApiKey(value: string): string {
+  const apiKey = value.trim()
+  if (!apiKey) {
+    throw new WeatherForecastError(
+      'unavailable',
+      'La clé WeatherAPI.com n’est pas configurée.',
+    )
   }
-  const time = value.time
-  if (!Array.isArray(time) || !time.every((item) => typeof item === 'number' && Number.isFinite(item))) {
-    throw new WeatherForecastError('invalid-response', 'La réponse météo ne contient pas de série horaire valide.')
-  }
-
-  const readField = (field: (typeof WEATHER_HOURLY_VARIABLES)[number]): Array<number | null> => {
-    const series = value[field]
-    if (!isNullableNumberArray(series) || series.length !== time.length) {
-      throw new WeatherForecastError('invalid-response', `La série météo « ${field} » est invalide.`)
-    }
-    return series
-  }
-
-  return {
-    time,
-    temperature_2m: readField('temperature_2m'),
-    apparent_temperature: readField('apparent_temperature'),
-    precipitation_probability: readField('precipitation_probability'),
-    weather_code: readField('weather_code'),
-    cloud_cover: readField('cloud_cover'),
-    visibility: readField('visibility'),
-    wind_speed_10m: readField('wind_speed_10m'),
-  }
-}
-
-export function parseOpenMeteoResponse(value: unknown, fetchedAt = new Date()): WeatherDayForecast {
-  if (!isRecord(value)) {
-    throw new WeatherForecastError('invalid-response', 'La réponse météo est invalide.')
-  }
-
-  const response = value as OpenMeteoResponse
-  if (
-    typeof response.latitude !== 'number'
-    || typeof response.longitude !== 'number'
-    || typeof response.utc_offset_seconds !== 'number'
-  ) {
-    throw new WeatherForecastError('invalid-response', 'La réponse météo ne contient pas les métadonnées attendues.')
-  }
-  const timeZone = readTimeZone(response.timezone)
-
-  return {
-    latitude: response.latitude,
-    longitude: response.longitude,
-    elevation: typeof response.elevation === 'number' ? response.elevation : null,
-    timezone: timeZone,
-    utcOffsetSeconds: response.utc_offset_seconds,
-    fetchedAt,
-    hourly: readHourlyData(response.hourly),
-  }
-}
-
-function utcDateKey(date: Date, dayOffset = 0): string {
-  return new Date(date.getTime() + dayOffset * 86_400_000).toISOString().slice(0, 10)
+  return apiKey
 }
 
 function roundedCoordinate(value: number): number {
@@ -156,45 +118,35 @@ function normalizedLocation(location: LatLng): LatLng {
 
 export function buildWeatherForecastUrl(
   location: LatLng,
-  date: Date,
-  endpoint: string = WEATHER.endpoint,
+  _date: Date,
+  endpoint: string = WEATHER.forecastEndpoint,
+  apiKey: string = WEATHER.apiKey,
 ): string {
   const normalized = normalizedLocation(location)
   const url = new URL(endpoint)
-  url.searchParams.set('latitude', String(normalized.lat))
-  url.searchParams.set('longitude', String(normalized.lng))
-  url.searchParams.set('hourly', WEATHER_HOURLY_VARIABLES.join(','))
-  url.searchParams.set('timezone', WEATHER.timezone)
-  url.searchParams.set('timeformat', WEATHER.timeformat)
-  // These dates are interpreted in the location's time zone, which is not
-  // known until the response arrives. This envelope covers UTC-12 to UTC+14.
-  url.searchParams.set('start_date', utcDateKey(date, -1))
-  url.searchParams.set('end_date', utcDateKey(date, 1))
-  url.searchParams.set('cell_selection', 'land')
+  url.searchParams.set('key', requireApiKey(apiKey))
+  url.searchParams.set('q', `${normalized.lat},${normalized.lng}`)
+  url.searchParams.set('days', String(WEATHER.forecastDays))
+  url.searchParams.set('aqi', 'no')
+  url.searchParams.set('alerts', 'no')
   return url.toString()
 }
 
-/**
- * Resolves only the IANA zone metadata for a coordinate. This request remains
- * valid even while the eclipse date is outside the weather forecast window,
- * so clock formatting never depends on forecast availability.
- */
 export function buildTimeZoneUrl(
   location: LatLng,
-  endpoint: string = WEATHER.endpoint,
+  endpoint: string = WEATHER.timeZoneEndpoint,
+  apiKey: string = WEATHER.apiKey,
 ): string {
   const normalized = normalizedLocation(location)
   const url = new URL(endpoint)
-  url.searchParams.set('latitude', String(normalized.lat))
-  url.searchParams.set('longitude', String(normalized.lng))
-  url.searchParams.set('timezone', WEATHER.timezone)
-  url.searchParams.set('forecast_days', '1')
+  url.searchParams.set('key', requireApiKey(apiKey))
+  url.searchParams.set('q', `${normalized.lat},${normalized.lng}`)
   return url.toString()
 }
 
 function cacheKey(location: LatLng, date: Date): string {
   const normalized = normalizedLocation(location)
-  return `${normalized.lat},${normalized.lng}:${utcDateKey(date)}`
+  return `${normalized.lat},${normalized.lng}:${date.toISOString().slice(0, 10)}`
 }
 
 function timeZoneCacheKey(location: LatLng): string {
@@ -223,11 +175,6 @@ function utcDayNumber(date: Date): number | null {
   ) / 86_400_000)
 }
 
-/**
- * Avoids a doomed dated request when the eclipse is outside Open-Meteo's
- * forecast/archive window. The one request can then resolve the local IANA
- * zone without asking the API for hourly data it cannot provide.
- */
 export function isWeatherForecastDateRequestable(date: Date, now = new Date()): boolean {
   const dateDay = utcDayNumber(date)
   const nowDay = utcDayNumber(now)
@@ -237,14 +184,112 @@ export function isWeatherForecastDateRequestable(date: Date, now = new Date()): 
     && distanceDays <= SAFE_FORECAST_FUTURE_DAYS
 }
 
-function errorFromStatus(status: number, reason?: string): WeatherForecastError {
-  if (status === 429) {
-    return new WeatherForecastError('rate-limit', 'Le service météo reçoit trop de demandes.')
+function utcOffsetSeconds(timeZone: string, at: Date): number {
+  const parts = new Intl.DateTimeFormat('en-GB', {
+    timeZone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hourCycle: 'h23',
+  }).formatToParts(at)
+  const values = Object.fromEntries(parts.map((part) => [part.type, part.value]))
+  const representedAsUtc = Date.UTC(
+    Number(values.year),
+    Number(values.month) - 1,
+    Number(values.day),
+    Number(values.hour),
+    Number(values.minute),
+    Number(values.second),
+  )
+  return Math.round((representedAsUtc - at.getTime()) / 1_000)
+}
+
+function readWeatherApiHour(value: unknown, hourly: WeatherHourlyData): void {
+  if (!isRecord(value)) {
+    throw new WeatherForecastError('invalid-response', 'La série météo horaire est invalide.')
   }
-  if (status === 400 || status === 404) {
-    return new WeatherForecastError('unavailable', reason || 'La prévision n’est pas encore disponible.')
+  const condition = value.condition
+  const conditionCode = isRecord(condition) ? finiteNumber(condition.code) : null
+  hourly.time.push(requiredNumber(value.time_epoch, 'time_epoch'))
+  hourly.temperature_2m.push(finiteNumber(value.temp_c))
+  hourly.apparent_temperature.push(finiteNumber(value.feelslike_c))
+  hourly.precipitation_probability.push(finiteNumber(value.chance_of_rain))
+  hourly.weather_code.push(conditionCode)
+  hourly.cloud_cover.push(finiteNumber(value.cloud))
+  const visibilityKm = finiteNumber(value.vis_km)
+  hourly.visibility.push(visibilityKm === null ? null : visibilityKm * 1_000)
+  hourly.wind_speed_10m.push(finiteNumber(value.wind_kph))
+}
+
+export function parseWeatherApiResponse(
+  value: unknown,
+  fetchedAt = new Date(),
+): WeatherDayForecast {
+  if (!isRecord(value) || !isRecord(value.location) || !isRecord(value.forecast)) {
+    throw new WeatherForecastError('invalid-response', 'La réponse météo est invalide.')
+  }
+  const location = value.location
+  const forecastDays = value.forecast.forecastday
+  if (!Array.isArray(forecastDays)) {
+    throw new WeatherForecastError('invalid-response', 'La réponse ne contient aucune prévision.')
+  }
+
+  const hourly: WeatherHourlyData = {
+    time: [],
+    temperature_2m: [],
+    apparent_temperature: [],
+    precipitation_probability: [],
+    weather_code: [],
+    cloud_cover: [],
+    visibility: [],
+    wind_speed_10m: [],
+  }
+  for (const day of forecastDays) {
+    if (!isRecord(day) || !Array.isArray(day.hour)) {
+      throw new WeatherForecastError('invalid-response', 'La prévision journalière est invalide.')
+    }
+    for (const hour of day.hour) readWeatherApiHour(hour, hourly)
+  }
+  if (hourly.time.length === 0) {
+    throw new WeatherForecastError('invalid-response', 'La réponse ne contient aucune heure météo.')
+  }
+
+  const timezone = readTimeZone(location.tz_id)
+  return {
+    latitude: requiredNumber(location.lat, 'latitude'),
+    longitude: requiredNumber(location.lon, 'longitude'),
+    elevation: null,
+    timezone,
+    utcOffsetSeconds: utcOffsetSeconds(timezone, new Date(hourly.time[0] * 1_000)),
+    fetchedAt,
+    hourly,
+  }
+}
+
+function weatherApiReason(value: unknown): string | undefined {
+  if (!isRecord(value) || !isRecord(value.error)) return undefined
+  return typeof value.error.message === 'string' ? value.error.message : undefined
+}
+
+function errorFromStatus(status: number, reason?: string): WeatherForecastError {
+  if (status === 429 || /quota|limit|exceeded/i.test(reason ?? '')) {
+    return new WeatherForecastError('rate-limit', 'Le quota WeatherAPI.com est épuisé.')
+  }
+  if ([400, 401, 403, 404].includes(status)) {
+    return new WeatherForecastError('unavailable', reason || 'La prévision n’est pas disponible.')
   }
   return new WeatherForecastError('network', 'Le service météo est momentanément indisponible.')
+}
+
+async function errorFromResponse(response: Response): Promise<WeatherForecastError> {
+  try {
+    return errorFromStatus(response.status, weatherApiReason(await response.json()))
+  } catch {
+    return errorFromStatus(response.status)
+  }
 }
 
 export async function fetchWeatherDay(
@@ -263,21 +308,17 @@ export async function fetchWeatherDay(
 
   try {
     const response = await (options.fetcher ?? fetch)(
-      buildWeatherForecastUrl(location, date, options.endpoint),
+      buildWeatherForecastUrl(
+        location,
+        date,
+        options.endpoint ?? WEATHER.forecastEndpoint,
+        options.apiKey ?? WEATHER.apiKey,
+      ),
       { signal: controller.signal },
     )
-    if (!response.ok) {
-      let reason: string | undefined
-      try {
-        const body: unknown = await response.json()
-        if (isRecord(body) && typeof body.reason === 'string') reason = body.reason
-      } catch {
-        // The HTTP status remains sufficient if the API did not return JSON.
-      }
-      throw errorFromStatus(response.status, reason)
-    }
+    if (!response.ok) throw await errorFromResponse(response)
 
-    const forecast = parseOpenMeteoResponse(await response.json())
+    const forecast = parseWeatherApiResponse(await response.json())
     weatherCache.set(key, {
       expiresAt: Date.now() + WEATHER.cacheDurationMilliseconds,
       forecast,
@@ -313,19 +354,23 @@ export async function fetchTimeZone(
 
   try {
     const response = await (options.fetcher ?? fetch)(
-      buildTimeZoneUrl(normalized, options.endpoint),
+      buildTimeZoneUrl(
+        normalized,
+        options.endpoint ?? WEATHER.timeZoneEndpoint,
+        options.apiKey ?? WEATHER.apiKey,
+      ),
       { signal: controller.signal },
     )
-    if (!response.ok) throw errorFromStatus(response.status)
+    if (!response.ok) throw await errorFromResponse(response)
 
     const body: unknown = await response.json()
-    if (!isRecord(body)) {
+    if (!isRecord(body) || !isRecord(body.location)) {
       throw new WeatherForecastError(
         'invalid-response',
         'La réponse ne contient pas de fuseau horaire valide.',
       )
     }
-    const timeZone = readTimeZone(body.timezone)
+    const timeZone = readTimeZone(body.location.tz_id)
     cacheTimeZone(normalized, timeZone)
     return timeZone
   } catch (error) {
@@ -350,12 +395,6 @@ export type WeatherLocationForecast = {
   forecastError: WeatherForecastError | null
 }
 
-/**
- * Resolves weather and the local clock with at most one network request.
- * A dated forecast already contains its IANA zone. Outside the safe forecast
- * window, a metadata-only request preserves local time formatting while the
- * UI honestly reports that the forecast is not yet available.
- */
 export async function fetchWeatherForLocation(
   location: LatLng,
   date: Date,
@@ -391,19 +430,31 @@ function valueAt(values: Array<number | null>, index: number): number | null {
 }
 
 export function weatherConditionFromCode(code: number | null): WeatherCondition {
-  if (code === 0) return { label: 'Ciel dégagé', icon: 'clear' }
-  if (code === 1) return { label: 'Peu nuageux', icon: 'partly-cloudy' }
-  if (code === 2) return { label: 'Éclaircies', icon: 'partly-cloudy' }
-  if (code === 3) return { label: 'Couvert', icon: 'cloudy' }
-  if (code === 45 || code === 48) return { label: 'Brouillard', icon: 'fog' }
-  if (code != null && code >= 51 && code <= 57) return { label: 'Bruine', icon: 'drizzle' }
-  if (code != null && ((code >= 61 && code <= 67) || (code >= 80 && code <= 82))) {
-    return { label: code >= 80 ? 'Averses' : 'Pluie', icon: 'rain' }
+  if (code === 1000) return { label: 'Ciel dégagé', icon: 'clear' }
+  if (code === 1003) return { label: 'Éclaircies', icon: 'partly-cloudy' }
+  if (code === 1006 || code === 1009) return { label: 'Couvert', icon: 'cloudy' }
+  if (code === 1030 || code === 1135 || code === 1147) {
+    return { label: 'Brouillard', icon: 'fog' }
   }
-  if (code != null && ((code >= 71 && code <= 77) || code === 85 || code === 86)) {
+  if ([1063, 1150, 1153, 1168, 1171].includes(code ?? -1)) {
+    return { label: 'Bruine', icon: 'drizzle' }
+  }
+  if (
+    (code != null && code >= 1180 && code <= 1201)
+    || (code != null && code >= 1240 && code <= 1246)
+  ) {
+    return { label: code >= 1240 ? 'Averses' : 'Pluie', icon: 'rain' }
+  }
+  if (
+    [1066, 1069, 1072, 1114, 1117].includes(code ?? -1)
+    || (code != null && code >= 1204 && code <= 1237)
+    || (code != null && code >= 1249 && code <= 1264)
+  ) {
     return { label: 'Neige', icon: 'snow' }
   }
-  if (code != null && code >= 95 && code <= 99) return { label: 'Orage', icon: 'storm' }
+  if (code === 1087 || (code != null && code >= 1273 && code <= 1282)) {
+    return { label: 'Orage', icon: 'storm' }
+  }
   return { label: 'Météo variable', icon: 'unknown' }
 }
 

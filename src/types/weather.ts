@@ -17,7 +17,7 @@ export type WeatherErrorKind =
   | 'invalid-response'
 
 export type WeatherHourlyData = {
-  /** Unix timestamps in seconds, requested explicitly from Open-Meteo. */
+  /** Unix timestamps in seconds returned by WeatherAPI.com. */
   time: number[]
   temperature_2m: Array<number | null>
   apparent_temperature: Array<number | null>

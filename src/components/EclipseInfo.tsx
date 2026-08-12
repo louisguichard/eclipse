@@ -46,7 +46,9 @@ export function EclipseInfo({ snapshot, cloudCover = null }: EclipseInfoProps) {
         <div>
           <dt>
             Nuages
-            <a href="https://open-meteo.com/" target="_blank" rel="noreferrer">Open-Meteo</a>
+            <a href="https://www.weatherapi.com/" target="_blank" rel="noreferrer">
+              WeatherAPI.com
+            </a>
           </dt>
           <dd>{cloudCover == null ? '—' : `${Math.round(cloudCover)} %`}</dd>
         </div>

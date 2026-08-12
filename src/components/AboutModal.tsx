@@ -102,7 +102,7 @@ export function AboutModal({ open, onClose }: AboutModalProps) {
         </p>
         <p>
           La météo est une prévision horaire{' '}
-          <a href="https://open-meteo.com/" target="_blank" rel="noreferrer">Open-Meteo</a>,
+          <a href="https://www.weatherapi.com/" target="_blank" rel="noreferrer">WeatherAPI.com</a>,
           susceptible d’évoluer jusqu’à l’événement. Elle ne garantit ni l’absence de nuages, ni la
           visibilité réelle.
         </p>
@@ -140,10 +140,13 @@ export function AboutModal({ open, onClose }: AboutModalProps) {
           Pour afficher une vue, le point choisi est envoyé à Google Street View — qui peut traiter
           votre adresse IP et ces coordonnées selon sa{' '}
           <a href="https://policies.google.com/privacy" target="_blank" rel="noreferrer">politique de confidentialité</a>{' '}
-          — puis, arrondi, à Open-Meteo pour la prévision. Vos recherches d’adresse partent vers la
-          Géoplateforme (France) ou CartoCiudad (Espagne), ou sont traitées localement. Les
-          panoramas sont assemblés en mémoire dans le navigateur et ne transitent par aucun serveur
-          du projet.
+          — puis, arrondi, à WeatherAPI.com pour la prévision, qui peut aussi traiter votre adresse
+          IP selon sa{' '}
+          <a href="https://www.weatherapi.com/privacy.aspx" target="_blank" rel="noreferrer">
+            politique de confidentialité
+          </a>. Vos recherches d’adresse partent vers la Géoplateforme (France) ou CartoCiudad
+          (Espagne), ou sont traitées localement. Les panoramas sont assemblés en mémoire dans le
+          navigateur et ne transitent par aucun serveur du projet.
         </p>
         <p>
           La mesure d’audience, lorsqu’elle est active, se limite au beacon standard de{' '}
@@ -158,6 +161,13 @@ export function AboutModal({ open, onClose }: AboutModalProps) {
           documentés, qui peuvent changer ou cesser de répondre sans préavis ; leur usage reste
           soumis aux{' '}
           <a href="https://maps.google.com/help/terms_maps/" target="_blank" rel="noreferrer">conditions Google Maps</a>.
+        </p>
+        <p>
+          Les informations météorologiques sont fournies à titre général. Les prévisions sont
+          probabilistes et peuvent être inexactes pour un lieu ou une heure précise. Elles ne
+          doivent pas être la seule base d’une décision concernant la sécurité des personnes,
+          l’aviation, la navigation maritime ou la gestion d’une urgence : consultez toujours les
+          services météorologiques officiels et les autorités compétentes dans ces situations.
         </p>
 
         <h3>Mentions légales</h3>

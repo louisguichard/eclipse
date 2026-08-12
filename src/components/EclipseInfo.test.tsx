@@ -27,9 +27,9 @@ describe('EclipseInfo', () => {
     expect(screen.getByText('ONO')).toBeInTheDocument()
     expect(screen.getByText('7,8°')).toBeInTheDocument()
     expect(screen.getByText('12 %')).toBeInTheDocument()
-    expect(screen.getByRole('link', { name: 'Open-Meteo' })).toHaveAttribute(
+    expect(screen.getByRole('link', { name: 'WeatherAPI.com' })).toHaveAttribute(
       'href',
-      'https://open-meteo.com/',
+      'https://www.weatherapi.com/',
     )
   })
 

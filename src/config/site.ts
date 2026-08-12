@@ -45,8 +45,8 @@ export const PROVENANCE: readonly ProvenanceEntry[] = [
   },
   {
     label: 'Météo',
-    name: 'Open-Meteo',
-    href: 'https://open-meteo.com/',
+    name: 'WeatherAPI.com',
+    href: 'https://www.weatherapi.com/',
   },
 ]
 

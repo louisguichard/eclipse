@@ -30,7 +30,7 @@ Fonctions principales :
 - disque Soleil–Lune calculé à partir des positions et rayons angulaires apparents ;
 - chronologie mondiale 15 h 30–20 h UTC avec lecture accélérée, contacts locaux observables et coucher du Soleil ;
 - diagnostic honnête de visibilité, distance au panorama et niveau de confiance ;
-- prévision horaire Open-Meteo pour le lieu et l’heure sélectionnés ;
+- prévision horaire WeatherAPI.com pour le lieu et l’heure sélectionnés ;
 - couche de visibilité active par défaut : Paris à 2 m, puis les sept autres départements franciliens à 5 m depuis R2 ;
 - URL partageable (`lat`, `lng`, `time`) et mode diagnostic `?debug=true` ;
 - interface française responsive et métadonnées PWA.
@@ -44,7 +44,10 @@ Python 3.11 ou plus récent n’est nécessaire que pour **régénérer** la cou
 
 Aucun serveur applicatif ni base de données n’est nécessaire. Les calculs astronomiques et l’état de l’interface restent dans le navigateur.
 
-La météo utilise l’API Forecast Open-Meteo sans clé. Son offre gratuite est réservée aux usages non commerciaux et impose l’attribution ; pour une exploitation commerciale, utilisez leur offre adaptée et vérifiez les [conditions Open-Meteo](https://open-meteo.com/en/terms).
+La météo utilise l’API Forecast de WeatherAPI.com avec une clé client temporaire.
+Cette clé est volontairement publique et doit être révoquée après l’événement. Le
+forfait gratuit autorise 100 000 appels mensuels et impose l’attribution ; vérifiez
+les [conditions WeatherAPI.com](https://www.weatherapi.com/terms.aspx).
 
 ## Installation locale
 
@@ -61,6 +64,7 @@ Renseignez ensuite `.env.local` :
 VITE_BASEMAP_STYLE_URL=https://tiles.openfreemap.org/styles/dark
 VITE_BASEMAP_PMTILES_URL=
 VITE_VISIBILITY_TILE_BASE_URL=https://cdn.example.fr/eclipse/visibility
+VITE_WEATHERAPI_KEY=votre_cle_jetable
 VITE_CLOUDFLARE_WEB_ANALYTICS_TOKEN=votre_token_de_site_optionnel
 VITE_MAINTENANCE_BANNER_ENABLED=false
 VITE_SPEAKEA_BANNER_PERCENTAGE=100
@@ -72,6 +76,10 @@ et la disponibilité, fournissez une archive Protomaps compatible via
 `VITE_BASEMAP_PMTILES_URL` ; lorsqu’elle est définie, elle prend la priorité.
 
 `VITE_VISIBILITY_TILE_BASE_URL` est facultatif pour la seule couverture parisienne incluse sous `/visibility/paris-2026-max-v1/`. Il doit être défini pour charger les jeux régionaux publiés sur R2. Indiquez le dossier parent de tous les dossiers versionnés, sans ajouter un nom de version à la variable. Cette URL n’est pas un secret.
+
+`VITE_WEATHERAPI_KEY` authentifie les appels météo effectués directement par le
+navigateur. Comme toute variable Vite, elle est intégrée au JavaScript public :
+utilisez exclusivement une clé jetable et révoquez-la après l’éclipse.
 
 `VITE_CLOUDFLARE_WEB_ANALYTICS_TOKEN` est facultatif et public. Lorsqu'il est renseigné, le beacon officiel Cloudflare Web Analytics est chargé uniquement dans le build de production. Il n'est jamais chargé avec `npm run dev`, ni lorsqu'aucun token n'est configuré.
 
@@ -86,8 +94,8 @@ bandeau Speakea peut être présenté. La valeur, comprise entre `0` et `100`, v
 son stockage local : diminuer le pourcentage conserve donc un sous-ensemble
 stable des visiteurs. Toute modification nécessite un redéploiement.
 
-Les variables `VITE_*` sont injectées dans le bundle client : elles sont
-publiques. Ne placez donc jamais de secret dans une variable préfixée `VITE_`.
+Les variables `VITE_*` sont injectées dans le bundle client et sont publiques.
+La clé WeatherAPI.com constitue ici une exception volontaire et temporaire.
 
 Lancez le développement :
 
@@ -274,7 +282,7 @@ La séparation importante est la suivante :
 
 ## Validation astronomique
 
-La référence par défaut est le centre de Paris (`48.8566, 2.3522`). Les instants sont stockés en UTC et les heures sont affichées dans le fuseau IANA du lieu demandé, renvoyé par Open-Meteo ; le 12 août 2026, Paris est ainsi en UTC+2. La fenêtre mondiale couvre les contacts observables d’Anchorage à Dakar, et le maximum affiché est ramené au lever ou au coucher lorsque le pic théorique se trouve sous l’horizon.
+La référence par défaut est le centre de Paris (`48.8566, 2.3522`). Les instants sont stockés en UTC et les heures sont affichées dans le fuseau IANA du lieu demandé, renvoyé par WeatherAPI.com ; le 12 août 2026, Paris est ainsi en UTC+2. La fenêtre mondiale couvre les contacts observables d’Anchorage à Dakar, et le maximum affiché est ramené au lever ou au coucher lorsque le pic théorique se trouve sous l’horizon.
 
 Résultats obtenus avec `astronomy-engine` pour un observateur à altitude 0 m, coordonnées apparentes avec réfraction atmosphérique normale :
 
@@ -344,11 +352,14 @@ Le téléchargement IGN est repris bloc par bloc. Pour modifier la résolution o
 
 ## Prévision météo
 
-Le navigateur demande à [Open-Meteo Forecast API](https://open-meteo.com/en/docs) les valeurs horaires autour du 12 août pour les coordonnées arrondies : température, code météo, couverture nuageuse, probabilité de pluie, visibilité et vent. `timezone=auto` fournit le fuseau IANA local et `timeformat=unixtime` garde des instants UTC non ambigus ; une enveloppe de trois dates civiles couvre aussi les lieux situés de l’autre côté de la ligne de changement de date. Le composant affiche l’heure disponible la plus proche de la timeline.
+Le navigateur demande à [WeatherAPI.com Forecast API](https://www.weatherapi.com/docs/) trois jours de valeurs horaires pour les coordonnées arrondies : température, code météo, couverture nuageuse, probabilité de pluie, visibilité et vent. La réponse fournit le fuseau IANA local et des instants Unix non ambigus. Le composant affiche l’heure disponible la plus proche de la timeline.
 
-Une seule requête est envoyée par position : quand la date de l’éclipse entre dans la fenêtre de prévision, sa réponse fournit à la fois les valeurs horaires et le fuseau IANA ; hors de cette fenêtre, une requête légère de métadonnées conserve l’heure locale sans demander une prévision indisponible. Les réponses sont mises en cache 15 minutes en mémoire. Déplacer la timeline ne relance pas de requête ; changer de position déclenche une requête temporisée et annule l’ancienne. Une prévision reste incertaine et évolutive : elle ne constitue jamais une garantie de ciel dégagé.
+Une seule requête est envoyée par position : quand la date de l’éclipse entre dans la fenêtre de prévision, sa réponse fournit à la fois les valeurs horaires et le fuseau IANA ; hors de cette fenêtre, une requête légère à l’endpoint de fuseau horaire conserve l’heure locale sans demander une prévision indisponible. Les réponses sont mises en cache 15 minutes en mémoire. Déplacer la timeline ne relance pas de requête ; changer de position déclenche une requête temporisée et annule l’ancienne.
 
-Open-Meteo publie les données sous [CC BY 4.0](https://open-meteo.com/en/license). L’attribution visible à côté des nuages doit être conservée.
+L’attribution WeatherAPI.com visible à côté des nuages doit être conservée. Les
+prévisions sont probabilistes et peuvent être inexactes pour un lieu ou une
+heure précise. Elles ne doivent jamais constituer l’unique source d’une décision
+concernant la sécurité : consultez les services météorologiques officiels.
 
 ## Géométrie Street View
 
@@ -403,7 +414,7 @@ panorama : pas de stockage local, de base de données, de bucket ni de proxy.
   tuiles Street View ; OpenFreeMap, Géoplateforme et CartoCiudad reçoivent aussi
   l’adresse IP et les termes ou coordonnées nécessaires à leur service. GeoNames
   est un fichier statique servi avec l’application.
-- Open-Meteo reçoit des coordonnées arrondies afin de servir la prévision horaire ; aucune position n’est conservée par l’application.
+- WeatherAPI.com reçoit des coordonnées arrondies afin de servir la prévision horaire ; aucune position n’est conservée par l’application.
 - Conservez les attributions visibles de chaque fournisseur et relisez leurs
   conditions avant publication.
 - La couche LiDAR conserve séparément l’attribution IGN et sa Licence Ouverte 2.0 ; elle n’est pas dérivée de contenu Google.
@@ -443,7 +454,7 @@ il ne constitue pas un avis juridique.
 | Panorama noir/incomplet | mémoire disponible, support canvas/blob et réponses CORS des tuiles `z3` |
 | Géolocalisation refusée | autorisation du navigateur, contexte HTTPS en production |
 | URL partagée incorrecte | `lat`, `lng` valides et `time` compris dans la timeline |
-| Heures décalées | vérifiez le fuseau IANA renvoyé par Open-Meteo dans `?debug=true` ; le repli avant chargement est UTC |
+| Heures décalées | vérifiez le fuseau IANA renvoyé par WeatherAPI.com dans `?debug=true` ; le repli avant chargement est UTC |
 | « Éclipse non visible ici » | le lieu est hors de l’empreinte observable du 12 août 2026 ; essayez l’Europe, l’Afrique du Nord ou le nord de l’Amérique du Nord |
 
 ## Mise en production : vérification indispensable

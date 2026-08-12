@@ -78,10 +78,10 @@ export function WeatherCard({ weather, variant = 'card', className = '' }: Weath
             href={WEATHER.attributionUrl}
             target="_blank"
             rel="noreferrer"
-            aria-label="Données Open-Meteo, valeurs arrondies, licence CC BY 4.0"
-            title="Données Open-Meteo, valeurs arrondies, CC BY 4.0"
+            aria-label="Données WeatherAPI.com, valeurs arrondies"
+            title="Données WeatherAPI.com, valeurs arrondies"
           >
-            Open-Meteo
+            WeatherAPI.com
           </a>
         </span>
       </span>
