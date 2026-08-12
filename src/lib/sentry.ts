@@ -1,7 +1,24 @@
 import * as Sentry from '@sentry/react'
+import type { ErrorEvent } from '@sentry/react'
 
 const OPERATIONAL_ERROR_SAMPLE_RATE = 0.05
 const UNCLASSIFIED_ERROR_SAMPLE_RATE = 0.05
+
+/** Detects navigation trackers injected by Android WebViews serializing React DOM nodes. */
+export function isInjectedAnchorSerializationError(event: ErrorEvent): boolean {
+  const exceptions = event.exception?.values ?? []
+  const messages = [event.message, ...exceptions.map(({ value }) => value)]
+  const matchesInjectedAnchor = messages.some((message) =>
+    message?.includes('Converting circular structure to JSON') === true &&
+    message.includes("constructor 'HTMLAnchorElement'") &&
+    message.includes('__reactFiber$') &&
+    message.includes("property 'stateNode' closes the circle"),
+  )
+  const hasApplicationFrame = exceptions.some(({ stacktrace }) =>
+    stacktrace?.frames?.some(({ in_app: inApplication }) => inApplication === true),
+  )
+  return matchesInjectedAnchor && !hasApplicationFrame
+}
 
 function withoutQuery(value: string): string {
   try {
@@ -47,6 +64,7 @@ export function installSentry(): boolean {
     },
     beforeSend(event) {
       delete event.user
+      if (isInjectedAnchorSerializationError(event)) return null
       if (event.request) {
         if (event.request.url) event.request.url = withoutQuery(event.request.url)
         delete event.request.query_string
