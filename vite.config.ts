@@ -17,7 +17,9 @@ export default defineConfig({
       // The eclipse rollout is time-sensitive: an already installed PWA must
       // activate the new build without waiting for every old tab to close.
       registerType: 'autoUpdate',
-      injectRegister: 'auto',
+      // Registration is handled in main.tsx so permission failures cannot
+      // surface as unhandled promise rejections.
+      injectRegister: false,
       includeAssets: ['favicon.svg'],
       manifest: {
         name: 'Éclipse 2026 — Où regarder ?',

@@ -63,5 +63,7 @@ export type WeatherResult = {
   /** IANA time zone returned for the requested coordinates. */
   timeZone: string | null
   error: string | null
+  /** True when an expired local forecast is shown during a provider outage. */
+  stale: boolean
   refresh: () => void
 }

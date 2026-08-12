@@ -62,6 +62,7 @@ export function WeatherCard({ weather, variant = 'card', className = '' }: Weath
   const rain = snapshot.precipitationProbability != null && snapshot.precipitationProbability >= 10
     ? rounded(snapshot.precipitationProbability, ' % pluie')
     : null
+  const freshness = weather.stale ? 'données en cache' : null
 
   return (
     <section className={surface} aria-label="Prévision météo">
@@ -71,7 +72,8 @@ export function WeatherCard({ weather, variant = 'card', className = '' }: Weath
         <span className="weather__condition">{snapshot.condition.label}</span>
         <span className="weather__meta-row">
           <span className="weather__meta">
-            {[formatLocalTime(snapshot.forecastTime, weather.timeZone), clouds, rain].filter(Boolean).join(' · ')}
+            {[formatLocalTime(snapshot.forecastTime, weather.timeZone), clouds, rain, freshness]
+              .filter(Boolean).join(' · ')}
           </span>
           <a
             className="weather__source"

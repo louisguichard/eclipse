@@ -5,9 +5,11 @@ import App from './App.tsx'
 import { ErrorBoundary } from './components/ErrorBoundary.tsx'
 import { installCloudflareWebAnalytics } from './lib/cloudflareAnalytics.ts'
 import { installSentry } from './lib/sentry.ts'
+import { installServiceWorker } from './lib/serviceWorker.ts'
 
 installSentry()
 installCloudflareWebAnalytics()
+installServiceWorker()
 
 const rootElement = document.getElementById('root')
 if (!rootElement) throw new Error('Application root element not found')

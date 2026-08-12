@@ -13,6 +13,7 @@ export function useWeather(location: LatLng, selectedTime: Date): WeatherResult 
   const [forecastState, setForecastState] = useState<{
     key: string
     forecast: WeatherDayForecast
+    stale: boolean
   } | null>(null)
   const [status, setStatus] = useState<WeatherStatus>('idle')
   const [error, setError] = useState<string | null>(null)
@@ -24,6 +25,7 @@ export function useWeather(location: LatLng, selectedTime: Date): WeatherResult 
   const coordinateKey = `${roundedLat},${roundedLng}`
   const requestKey = `${roundedLat},${roundedLng}:${dateKey}:${revision}`
   const forecast = forecastState?.key === requestKey ? forecastState.forecast : null
+  const stale = forecastState?.key === requestKey ? forecastState.stale : false
   const resolvedTimeZone = timeZoneState?.key === coordinateKey ? timeZoneState.value : null
 
   useEffect(() => {
@@ -36,11 +38,11 @@ export function useWeather(location: LatLng, selectedTime: Date): WeatherResult 
         { lat: Number(roundedLat), lng: Number(roundedLng) },
         forecastDate,
         { signal: controller.signal },
-      ).then(({ forecast: nextForecast, timeZone, forecastError }) => {
+      ).then(({ forecast: nextForecast, timeZone, forecastError, stale: nextStale }) => {
         if (controller.signal.aborted) return
         setTimeZoneState({ key: coordinateKey, value: timeZone })
+        if (forecastError) captureOperationalError('weather', forecastError)
         if (!nextForecast) {
-          if (forecastError) captureOperationalError('weather', forecastError)
           if (forecastError?.kind === 'unavailable') {
             setStatus('unavailable')
             setError('Prévision pas encore disponible')
@@ -50,7 +52,7 @@ export function useWeather(location: LatLng, selectedTime: Date): WeatherResult 
           setError('Météo indisponible')
           return
         }
-        setForecastState({ key: requestKey, forecast: nextForecast })
+        setForecastState({ key: requestKey, forecast: nextForecast, stale: nextStale })
         setStatus('ready')
       }).catch((requestError: unknown) => {
         if (controller.signal.aborted) return
@@ -83,6 +85,7 @@ export function useWeather(location: LatLng, selectedTime: Date): WeatherResult 
     snapshot,
     timeZone: resolvedTimeZone ?? forecast?.timezone ?? null,
     error: status === 'ready' && !snapshot ? 'Prévision pas encore disponible' : error,
+    stale,
     refresh,
   }
 }

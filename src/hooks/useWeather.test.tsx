@@ -58,6 +58,7 @@ describe('useWeather', () => {
       forecast: DAY,
       timeZone: 'Europe/Paris',
       forecastError: null,
+      stale: false,
     })
     weatherMocks.weatherAtTime.mockImplementation((_forecast: WeatherDayForecast, date: Date) => snapshotAt(date))
   })
@@ -120,11 +121,13 @@ describe('useWeather', () => {
         forecast: DAY,
         timeZone: 'Europe/Paris',
         forecastError: null,
+        stale: false,
       })
       .mockResolvedValueOnce({
         forecast: tokyoDay,
         timeZone: 'Asia/Tokyo',
         forecastError: null,
+        stale: false,
       })
     const { result, rerender } = renderHook(
       ({ lat, lng }) => useWeather({ lat, lng }, new Date('2026-08-12T18:17:00Z')),
@@ -154,6 +157,7 @@ describe('useWeather', () => {
         'unavailable',
         'Date is out of allowed range',
       ),
+      stale: false,
     })
     const { result } = renderHook(() => useWeather(
       { lat: 48.8566, lng: 2.3522 },
@@ -166,5 +170,26 @@ describe('useWeather', () => {
 
     expect(result.current.timeZone).toBe('Europe/Paris')
     expect(result.current.status).toBe('unavailable')
+  })
+
+  it('keeps an expired forecast visible during a provider outage', async () => {
+    weatherMocks.fetchWeatherForLocation.mockResolvedValue({
+      forecast: DAY,
+      timeZone: 'Europe/Paris',
+      forecastError: new WeatherForecastError('network', 'Le service météo ne répond pas.'),
+      stale: true,
+    })
+    const { result } = renderHook(() => useWeather(
+      { lat: 48.8566, lng: 2.3522 },
+      new Date('2026-08-12T18:17:00Z'),
+    ))
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(251)
+    })
+
+    expect(result.current.status).toBe('ready')
+    expect(result.current.snapshot).not.toBeNull()
+    expect(result.current.stale).toBe(true)
   })
 })

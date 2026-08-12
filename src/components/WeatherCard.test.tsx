@@ -15,6 +15,7 @@ describe('WeatherCard', () => {
     const weather: WeatherResult = {
       status: 'ready',
       error: null,
+      stale: false,
       refresh,
       timeZone: 'Europe/Paris',
       snapshot: {
@@ -42,7 +43,31 @@ describe('WeatherCard', () => {
   })
 
   it('shows a compact error instead of a blank card', () => {
-    render(<WeatherCard weather={{ status: 'error', snapshot: null, timeZone: null, error: 'Météo indisponible', refresh }} />)
+    render(<WeatherCard weather={{ status: 'error', snapshot: null, timeZone: null, error: 'Météo indisponible', stale: false, refresh }} />)
     expect(screen.getByText('Météo indisponible')).toBeInTheDocument()
+  })
+
+  it('labels an expired forecast used during an outage', () => {
+    const weather: WeatherResult = {
+      status: 'ready',
+      error: null,
+      stale: true,
+      refresh,
+      timeZone: 'Europe/Paris',
+      snapshot: {
+        forecastTime: new Date('2026-08-12T18:00:00Z'),
+        temperatureCelsius: 34,
+        apparentTemperatureCelsius: 33,
+        precipitationProbability: 0,
+        weatherCode: 0,
+        cloudCover: 8,
+        visibilityMeters: 50_000,
+        windSpeedKmh: 8,
+        condition: { label: 'Ciel dégagé', icon: 'clear' },
+      },
+    }
+
+    render(<WeatherCard weather={weather} />)
+    expect(screen.getByText(/données en cache/)).toBeInTheDocument()
   })
 })

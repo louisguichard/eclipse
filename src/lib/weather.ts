@@ -393,6 +393,11 @@ export type WeatherLocationForecast = {
   forecast: WeatherDayForecast | null
   timeZone: string
   forecastError: WeatherForecastError | null
+  stale: boolean
+}
+
+function staleWeatherDay(location: LatLng, date: Date): WeatherDayForecast | null {
+  return weatherCache.get(cacheKey(location, date))?.forecast ?? null
 }
 
 export async function fetchWeatherForLocation(
@@ -409,16 +414,27 @@ export async function fetchWeatherForLocation(
         'unavailable',
         'La prévision n’est pas encore disponible.',
       ),
+      stale: false,
     }
   }
 
   try {
     const forecast = await fetchWeatherDay(location, date, fetchOptions)
-    return { forecast, timeZone: forecast.timezone, forecastError: null }
+    return { forecast, timeZone: forecast.timezone, forecastError: null, stale: false }
   } catch (error) {
+    const staleForecast = staleWeatherDay(location, date)
+    if (staleForecast && error instanceof WeatherForecastError &&
+      error.kind !== 'aborted' && error.kind !== 'unavailable') {
+      return {
+        forecast: staleForecast,
+        timeZone: staleForecast.timezone,
+        forecastError: error,
+        stale: true,
+      }
+    }
     const timeZone = cachedTimeZone(location)
     if (timeZone && error instanceof WeatherForecastError) {
-      return { forecast: null, timeZone, forecastError: error }
+      return { forecast: null, timeZone, forecastError: error, stale: false }
     }
     throw error
   }

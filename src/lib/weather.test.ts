@@ -59,6 +59,7 @@ const WEATHER_API_RESPONSE = {
 
 afterEach(() => {
   clearWeatherCache()
+  vi.useRealTimers()
   vi.restoreAllMocks()
 })
 
@@ -126,6 +127,7 @@ describe('combined weather lookup', () => {
     expect(fetcher).toHaveBeenCalledTimes(1)
     expect(result.timeZone).toBe('Europe/Paris')
     expect(result.forecastError).toBeNull()
+    expect(result.stale).toBe(false)
     expect(weatherAtTime(result.forecast!, new Date('2026-08-12T18:17:00Z'))?.cloudCover)
       .toBe(0)
   })
@@ -151,6 +153,31 @@ describe('combined weather lookup', () => {
     expect(result.forecastError?.kind).toBe('unavailable')
     expect(result.timeZone).toBe('Europe/Paris')
     expect(url.pathname).toBe('/v1/timezone.json')
+  })
+
+  it('uses an expired forecast when a refresh hits a provider outage', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-08-11T12:00:00Z'))
+    const fetcher = vi.fn<typeof fetch>()
+      .mockResolvedValueOnce(new Response(JSON.stringify(WEATHER_API_RESPONSE)))
+      .mockRejectedValueOnce(new TypeError('Load failed'))
+    const location = { lat: 48.8566, lng: 2.3522 }
+    const date = new Date('2026-08-12T18:17:00Z')
+    const options = {
+      fetcher,
+      apiKey: 'temporary-key',
+      now: new Date('2026-08-11T12:00:00Z'),
+    }
+
+    await fetchWeatherForLocation(location, date, options)
+    vi.advanceTimersByTime(16 * 60 * 1_000)
+    const fallback = await fetchWeatherForLocation(location, date, options)
+
+    expect(fetcher).toHaveBeenCalledTimes(2)
+    expect(fallback.forecast).not.toBeNull()
+    expect(fallback.forecastError).toMatchObject({ kind: 'network' })
+    expect(fallback.timeZone).toBe('Europe/Paris')
+    expect(fallback.stale).toBe(true)
   })
 })
 
