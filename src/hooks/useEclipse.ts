@@ -1,5 +1,6 @@
 import { useMemo } from 'react'
 import { calculateEclipseSnapshot, dateFromTimelineMinute } from '../lib/astronomy'
+import { captureFatalError } from '../lib/sentry'
 import type { EclipseSnapshot, LatLng } from '../types'
 
 type EclipseResult = {
@@ -18,6 +19,7 @@ export function useEclipse(location: LatLng, minute: number): EclipseResult {
       }
     } catch (error) {
       console.error('Astronomy calculation failed', error)
+      captureFatalError('astronomy', error)
       return {
         snapshot: null,
         error: 'Le calcul astronomique a échoué pour ce point.',

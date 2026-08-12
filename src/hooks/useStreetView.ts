@@ -17,6 +17,7 @@ import {
   findNearestPanorama,
   loadPanoramaImage,
 } from '../lib/streetlevel'
+import { captureOperationalError } from '../lib/sentry'
 import type {
   StreetLevelLink,
   StreetLevelPanorama,
@@ -422,6 +423,7 @@ export function useStreetView(
         } catch (error) {
           if (abortError(error) || requestToken !== requestTokenRef.current) return
           console.error('Streetlevel panorama failed', error)
+          captureOperationalError('streetview', error)
           setPanoramaState({
             status: 'error',
             position: null,

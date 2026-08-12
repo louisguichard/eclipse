@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { WEATHER } from '../config/weather'
 import { fetchWeatherForLocation, WeatherForecastError, weatherAtTime } from '../lib/weather'
+import { captureOperationalError } from '../lib/sentry'
 import type { LatLng } from '../types'
 import type { WeatherDayForecast, WeatherResult, WeatherStatus } from '../types/weather'
 
@@ -39,6 +40,7 @@ export function useWeather(location: LatLng, selectedTime: Date): WeatherResult 
         if (controller.signal.aborted) return
         setTimeZoneState({ key: coordinateKey, value: timeZone })
         if (!nextForecast) {
+          if (forecastError) captureOperationalError('weather', forecastError)
           if (forecastError?.kind === 'unavailable') {
             setStatus('unavailable')
             setError('Prévision pas encore disponible')
@@ -52,6 +54,7 @@ export function useWeather(location: LatLng, selectedTime: Date): WeatherResult 
         setStatus('ready')
       }).catch((requestError: unknown) => {
         if (controller.signal.aborted) return
+        captureOperationalError('weather', requestError)
         if (requestError instanceof WeatherForecastError && requestError.kind === 'unavailable') {
           setStatus('unavailable')
           setError('Prévision pas encore disponible')

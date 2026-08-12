@@ -15,6 +15,7 @@ import { formatLocalTime } from '../lib/format'
 import { applyBasemapLandTone, resolveBasemapStyle } from '../lib/mapLibreBasemap'
 import { createVisibilityRasterDefinition } from '../lib/mapLibreVisibility'
 import { ensureVisibilityTileProtocol } from '../lib/mapLibreVisibilityProtocol'
+import { captureOperationalError } from '../lib/sentry'
 import {
   knownVisibilityCoverageAtPoint,
   preferredVisibilityDatasetAtPoint,
@@ -387,6 +388,7 @@ export function MapView({
         handleError = (event) => {
           if (baseStyleReady || cancelled) return
           console.error('MapLibre basemap failed to load', event.error)
+          captureOperationalError('basemap', event.error)
           setStatus('error')
         }
         handleLoad = () => {
@@ -432,6 +434,7 @@ export function MapView({
         map.once('load', handleLoad)
       } catch (error) {
         console.error('MapLibre failed to initialize', error)
+        captureOperationalError('basemap', error)
         if (!cancelled) setStatus('error')
       }
     }

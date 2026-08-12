@@ -34,6 +34,7 @@
     "@fontsource/schibsted-grotesk": "^5.3.0",
     "@photo-sphere-viewer/core": "^5.15.1",
     "@protomaps/basemaps": "^5.7.2",
+    "@sentry/react": "^10.70.0",
     "astronomy-engine": "^2.1.19",
     "lucide-react": "^1.30.0",
     "maplibre-gl": "^6.3.0",

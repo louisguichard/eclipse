@@ -1,5 +1,6 @@
 import { Component, type ErrorInfo, type ReactNode } from 'react'
 import { AlertTriangle } from 'lucide-react'
+import { captureFatalError } from '../lib/sentry'
 
 type Props = { children: ReactNode }
 type State = { failed: boolean }
@@ -13,6 +14,7 @@ export class ErrorBoundary extends Component<Props, State> {
 
   componentDidCatch(error: Error, info: ErrorInfo) {
     console.error('Application render failed', error, info)
+    captureFatalError('react-render', error)
   }
 
   render() {
