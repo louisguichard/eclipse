@@ -3,6 +3,9 @@
 @import "@fontsource/schibsted-grotesk/latin-600.css";
 @import "@fontsource/schibsted-grotesk/latin-700.css";
 @import "@fontsource/ibm-plex-mono/latin-500.css";
+/* Display serif, used by the farewell print alone. */
+@import "@fontsource/instrument-serif/latin-400.css";
+@import "@fontsource/instrument-serif/latin-400-italic.css";
 @import "tailwindcss";
 
 /* ==========================================================================
@@ -15,6 +18,7 @@
   /* Type */
   --font-ui: "Schibsted Grotesk", ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   --font-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  --font-display: "Instrument Serif", ui-serif, Georgia, "Times New Roman", serif;
 
   /* Ink */
   --ink: #f1f5fa;
@@ -4684,5 +4688,183 @@ p.legal-modal__credit {
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
+  }
+}
+
+/* ==========================================================================
+   Farewell
+
+   The morning after the eclipse. One print of the crowd on the quay, two lines
+   set in a serif the rest of the interface never uses, the photographer's name
+   along the mount — and a single quiet way back into the instrument.
+   ========================================================================== */
+
+.farewell {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: clamp(22px, 4vh, 40px);
+  padding: clamp(20px, 5vh, 60px) clamp(18px, 5vw, 64px);
+  /* The warmth of that light, kept as the faintest wash above the print. */
+  background:
+    radial-gradient(120% 80% at 50% 4%, rgb(255 176 78 / 0.09), transparent 62%),
+    var(--night-950);
+  animation: farewell-in 700ms var(--ease) both;
+}
+
+.farewell__print {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: clamp(22px, 3.6vh, 38px);
+  margin: 0;
+  max-width: 100%;
+  animation: farewell-rise 1100ms var(--ease) 120ms both;
+}
+
+/* The mount: the photograph, and its signature set flush with the right edge
+   of the print, the way a name is written under a mounted photograph. */
+.farewell__frame {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  max-width: 100%;
+}
+
+/* The photograph is never cropped: it is the whole point of the page. Height
+   and width both cap it, so a wide screen or a short one only makes the print
+   smaller — the crowd stays entire. */
+.farewell__photo {
+  display: block;
+  width: auto;
+  max-width: 100%;
+  max-height: min(56vh, 620px);
+  border-radius: var(--r-sm);
+  border: 1px solid var(--stroke);
+  box-shadow: var(--shadow-float);
+}
+
+.farewell__credit {
+  /* The trailing letter-space of the last glyph would push the name a hair off
+     the edge it is meant to sit on; the negative margin takes it back. */
+  margin-right: -0.16em;
+  padding-top: 11px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  color: var(--ink-faint);
+}
+
+.farewell__credit span {
+  padding: 0 0.35em;
+}
+
+.farewell__words {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 0;
+  font-family: var(--font-display);
+  font-weight: 400;
+  text-align: center;
+  text-wrap: balance;
+  /* One ink for both lines: the sentence and the promise carry the same voice,
+     and the only colour left on the page is the photograph's own. */
+  color: var(--ink);
+}
+
+.farewell__lead {
+  font-size: clamp(2rem, 4.4vw, 3.05rem);
+  line-height: 1.08;
+  letter-spacing: -0.005em;
+}
+
+.farewell__next {
+  font-style: italic;
+  font-size: clamp(1.15rem, 2.4vw, 1.6rem);
+  line-height: 1.2;
+  letter-spacing: 0.005em;
+}
+
+.farewell__enter {
+  padding: 0 16px 8px;
+  border: 0;
+  background: none;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  /* Quiet, but the only door: nothing else on this page reacts to a click. */
+  color: var(--ink-mute);
+  cursor: pointer;
+  transition: color 220ms var(--ease);
+  animation: farewell-in 900ms var(--ease) 1.6s both;
+}
+
+/* A dropped hairline stands in for the space a printed page would leave
+   between the plate and its caption. */
+.farewell__enter::before {
+  content: "";
+  display: block;
+  width: 1px;
+  height: clamp(20px, 3.4vh, 36px);
+  margin: 0 auto 16px;
+  background: linear-gradient(to bottom, transparent, var(--stroke-strong));
+}
+
+.farewell__enter:hover,
+.farewell__enter:focus-visible {
+  color: var(--ink);
+}
+
+.farewell__enter:focus-visible {
+  outline: 1px solid var(--stroke-strong);
+  outline-offset: 6px;
+  border-radius: var(--r-sm);
+}
+
+@keyframes farewell-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes farewell-rise {
+  from {
+    opacity: 0;
+    transform: translateY(16px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* On a phone the print runs edge to edge, and the same tracking would stretch
+   the name into a second headline; it steps back down to a caption. */
+@media (max-width: 700px) {
+  .farewell__credit {
+    padding-top: 9px;
+    font-size: 9px;
+    letter-spacing: 0.12em;
+  }
+}
+
+/* Landscape phones have no height to spare: the print keeps the frame and the
+   two lines move in tighter rather than pushing the photograph off screen. */
+@media (max-height: 560px) {
+  .farewell__photo {
+    max-height: 50vh;
+  }
+
+  .farewell__words {
+    gap: 6px;
   }
 }

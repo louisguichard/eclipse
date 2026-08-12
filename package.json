@@ -31,6 +31,7 @@
   },
   "dependencies": {
     "@fontsource/ibm-plex-mono": "^5.3.0",
+    "@fontsource/instrument-serif": "^5.3.0",
     "@fontsource/schibsted-grotesk": "^5.3.0",
     "@photo-sphere-viewer/core": "^5.15.1",
     "@protomaps/basemaps": "^5.7.2",

@@ -22,3 +22,10 @@ export const MAINTENANCE_BANNER_ENABLED = enabled(
 export const SPEAKEA_BANNER_PERCENTAGE = percentage(
   import.meta.env.VITE_SPEAKEA_BANNER_PERCENTAGE,
 )
+
+/**
+ * The farewell print stands in front of the site now that the eclipse has
+ * passed. It is the only flag that is on unless explicitly turned off, so the
+ * post-event front door survives a deployment made without any environment.
+ */
+export const FAREWELL_ENABLED = !enabled(import.meta.env.VITE_FAREWELL_DISABLED)

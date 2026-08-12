@@ -68,6 +68,7 @@ VITE_WEATHERAPI_KEY=votre_cle_jetable
 VITE_CLOUDFLARE_WEB_ANALYTICS_TOKEN=votre_token_de_site_optionnel
 VITE_MAINTENANCE_BANNER_ENABLED=false
 VITE_SPEAKEA_BANNER_PERCENTAGE=100
+VITE_FAREWELL_DISABLED=false
 ```
 
 `VITE_BASEMAP_STYLE_URL` configure le style MapLibre. Le style OpenFreeMap par
@@ -93,6 +94,20 @@ bandeau Speakea peut être présenté. La valeur, comprise entre `0` et `100`, v
 `100` par défaut. Chaque navigateur reçoit une cohorte stable conservée dans
 son stockage local : diminuer le pourcentage conserve donc un sous-ensemble
 stable des visiteurs. Toute modification nécessite un redéploiement.
+
+`VITE_FAREWELL_DISABLED` concerne l’écran d’adieu affiché depuis l’éclipse : une
+photographie de la foule créditée à Mahaut Colliaut, « C’est terminé. Rendez-vous
+le 2 août 2027 ! », et le seul bouton « Revenir au site » pour retrouver le site
+tel qu’il était — rien d’autre sur la page ne réagit au clic. Contrairement aux
+autres flags, il est actif par défaut ; seule la valeur `true` le désactive, afin
+qu’un déploiement sans variables serve bien la page d’après-éclipse.
+
+Rien n’est mémorisé d’un chargement à l’autre : l’adresse nue affiche toujours la
+photographie. C’est la présence de paramètres qui signale un visiteur déjà entré —
+un lien partagé (`?lat=…&lng=…&time=…`), une session `?debug=true`, ou simplement
+l’observateur que l’application réécrit dans l’URL quelques instants après son
+ouverture. Passé l’écran d’adieu, on peut donc recharger, partager ou revenir sur
+cette adresse sans le revoir ; taper l’adresse nue y ramène.
 
 Les variables `VITE_*` sont injectées dans le bundle client et sont publiques.
 La clé WeatherAPI.com constitue ici une exception volontaire et temporaire.
@@ -179,7 +194,7 @@ Pour reproduire exactement une installation CI, utilisez `npm ci` plutôt que `n
 1. importez le dépôt dans Vercel ;
 2. laissez **Root Directory** à la racine du dépôt (`.`) ;
 3. gardez le preset **Vite**, la commande `npm run build` et le dossier de sortie `dist` ;
-4. configurez, si utilisés, `VITE_BASEMAP_PMTILES_URL`, `VITE_VISIBILITY_TILE_BASE_URL`, `VITE_CLOUDFLARE_WEB_ANALYTICS_TOKEN`, `VITE_MAINTENANCE_BANNER_ENABLED` et `VITE_SPEAKEA_BANNER_PERCENTAGE` dans **Project Settings → Environment Variables** ;
+4. configurez, si utilisés, `VITE_BASEMAP_PMTILES_URL`, `VITE_VISIBILITY_TILE_BASE_URL`, `VITE_CLOUDFLARE_WEB_ANALYTICS_TOKEN`, `VITE_MAINTENANCE_BANNER_ENABLED`, `VITE_SPEAKEA_BANNER_PERCENTAGE` et `VITE_FAREWELL_DISABLED` dans **Project Settings → Environment Variables** ;
 5. choisissez explicitement les environnements Production/Preview/Development voulus ;
 6. déployez, puis testez depuis le domaine final le chargement CORS du fond, de la recherche et des tuiles Street View ;
 7. redéployez après toute modification d’une variable `VITE_*`, car elle est incorporée à la compilation.

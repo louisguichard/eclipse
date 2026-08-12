@@ -6,8 +6,15 @@ This project includes or consumes third-party software, fonts, data, and service
 
 - **IBM Plex Mono**, distributed through `@fontsource/ibm-plex-mono`, is licensed under the SIL Open Font License 1.1.
 - **Schibsted Grotesk**, distributed through `@fontsource/schibsted-grotesk`, is licensed under the SIL Open Font License 1.1.
+- **Instrument Serif**, distributed through `@fontsource/instrument-serif` and used by the farewell screen only, is licensed under the SIL Open Font License 1.1.
 
 The complete font license texts are included in the corresponding npm packages installed from `package-lock.json`.
+
+## Photograph
+
+The farewell screen shows one photograph of the 12 August 2026 crowd, credited
+on screen to **Mahaut Colliaut**. It is published here with permission and is
+not covered by this project's licence.
 
 ## IGN LiDAR HD
 
