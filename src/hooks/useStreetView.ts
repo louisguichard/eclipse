@@ -1,6 +1,6 @@
 import '@photo-sphere-viewer/core/index.css'
 
-import { Viewer } from '@photo-sphere-viewer/core'
+import { SYSTEM, Viewer } from '@photo-sphere-viewer/core'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { RefObject } from 'react'
 import { STREET_VIEW } from '../config/eclipse'
@@ -69,6 +69,13 @@ type PanoramaLookup = {
 const DEG_TO_RAD = Math.PI / 180
 const RAD_TO_DEG = 180 / Math.PI
 const LOOKUP_DELAY_MS = 220
+
+class StreetViewCapabilityError extends Error {
+  constructor(cause: unknown) {
+    super('WebGL 2 indisponible pour le panorama.', { cause })
+    this.name = 'StreetViewCapabilityError'
+  }
+}
 
 function abortError(error: unknown): boolean {
   return error instanceof DOMException && error.name === 'AbortError'
@@ -234,6 +241,14 @@ export function useStreetView(
     const container = containerRef.current
     if (!container) throw new Error('Conteneur du panorama indisponible')
 
+    // Viewer catches this failure internally and returns a partially initialized
+    // instance without dataHelper. Fail before construction so callers never use
+    // that invalid instance (for example through rotate() or getPosition()).
+    try {
+      SYSTEM.load()
+    } catch (error) {
+      throw new StreetViewCapabilityError(error)
+    }
     const viewer = new Viewer({
       container,
       navbar: false,
@@ -422,6 +437,16 @@ export function useStreetView(
           await displayPanorama(lookup, image, searchedPosition, requestToken)
         } catch (error) {
           if (abortError(error) || requestToken !== requestTokenRef.current) return
+          if (error instanceof StreetViewCapabilityError) {
+            setPanoramaState({
+              status: 'unavailable',
+              position: null,
+              distanceMeters: null,
+              radiusMeters: null,
+              message: 'La vue 360° n’est pas compatible avec ce navigateur ou cet appareil.',
+            })
+            return
+          }
           console.error('Streetlevel panorama failed', error)
           captureOperationalError('streetview', error)
           setPanoramaState({

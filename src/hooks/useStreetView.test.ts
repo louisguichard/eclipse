@@ -30,6 +30,7 @@ const streetlevelMocks = vi.hoisted(() => ({
 
 const viewerMocks = vi.hoisted(() => ({
   instances: [] as FakeViewerShape[],
+  systemLoad: vi.fn(),
 }))
 
 vi.mock('../lib/streetlevel', () => ({
@@ -100,7 +101,10 @@ vi.mock('@photo-sphere-viewer/core', () => {
     }
   }
 
-  return { Viewer: FakeViewer }
+  return {
+    SYSTEM: { load: viewerMocks.systemLoad },
+    Viewer: FakeViewer,
+  }
 })
 
 const OBSERVER: ObserverLocation = {
@@ -202,6 +206,7 @@ describe('useStreetView with the browser Streetlevel provider', () => {
   beforeEach(() => {
     vi.useFakeTimers()
     viewerMocks.instances.length = 0
+    viewerMocks.systemLoad.mockReset()
     animationFrames = []
     latestStreetView = null
     streetlevelMocks.findNearestPanorama.mockResolvedValue(PANORAMA)
@@ -245,6 +250,25 @@ describe('useStreetView with the browser Streetlevel provider', () => {
     expect(viewer.panoramaOptions?.sphereCorrection).toEqual({
       tilt: expect.closeTo(-0.4 * Math.PI / 180, 10),
       roll: expect.closeTo(-0.1 * Math.PI / 180, 10),
+    })
+  })
+
+  it('rejects unsupported WebGL before Photo Sphere Viewer returns an invalid instance', async () => {
+    const webglError = new Error('WebGL 2 is not supported.')
+    viewerMocks.systemLoad.mockImplementationOnce(() => {
+      throw webglError
+    })
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+
+    render(createElement(StreetViewHarness, { snapshot: snapshotAt(284, 8) }))
+    await finishLookup()
+
+    expect(viewerMocks.systemLoad).toHaveBeenCalledOnce()
+    expect(viewerMocks.instances).toHaveLength(0)
+    expect(consoleError).not.toHaveBeenCalled()
+    expect(latestStreetView?.panoramaState).toMatchObject({
+      status: 'unavailable',
+      message: 'La vue 360° n’est pas compatible avec ce navigateur ou cet appareil.',
     })
   })
 
