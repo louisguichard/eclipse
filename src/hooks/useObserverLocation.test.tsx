@@ -11,6 +11,8 @@ describe('useObserverLocation URL synchronization', () => {
 
   afterEach(() => {
     cleanup()
+    vi.useRealTimers()
+    vi.restoreAllMocks()
   })
 
   it('updates both the browser URL and share URL after a Street View walk', async () => {
@@ -89,6 +91,26 @@ describe('useObserverLocation URL synchronization', () => {
     await waitFor(() => expect(replaceState).toHaveBeenCalledTimes(initialWrites + 1))
     expect(new URLSearchParams(window.location.search).get('time')).toBe('63')
     expect(new URL(result.current.shareUrl()).searchParams.get('time')).toBe('63')
+  })
+
+  it('debounces rapid playback updates below Safari history limits', () => {
+    vi.useFakeTimers()
+    const replaceState = vi.spyOn(window.history, 'replaceState')
+    const { result } = renderHook(() => useObserverLocation())
+
+    act(() => vi.advanceTimersByTime(250))
+    replaceState.mockClear()
+
+    for (let minute = 7; minute <= 114; minute += 1) {
+      act(() => result.current.setMinute(minute))
+      act(() => vi.advanceTimersByTime(68))
+    }
+
+    expect(replaceState).not.toHaveBeenCalled()
+
+    act(() => vi.advanceTimersByTime(250))
+    expect(replaceState).toHaveBeenCalledOnce()
+    expect(new URLSearchParams(window.location.search).get('time')).toBe('114')
   })
 
   it('preserves negative timeline minutes in shared North American links', () => {

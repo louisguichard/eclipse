@@ -4,6 +4,8 @@ import { TIMELINE } from '../config/eclipse'
 import { localEclipseCircumstances, timelineMinuteFromDate } from '../lib/astronomy'
 import type { ObserverLocation } from '../types'
 
+const URL_SYNC_DELAY_MS = 250
+
 function validCoordinate(value: number, min: number, max: number): boolean {
   return Number.isFinite(value) && value >= min && value <= max
 }
@@ -83,11 +85,18 @@ export function useObserverLocation() {
   }, [setLocation])
 
   useEffect(() => {
-    const url = new URL(window.location.href)
-    url.searchParams.set('lat', location.lat.toFixed(6))
-    url.searchParams.set('lng', location.lng.toFixed(6))
-    url.searchParams.set('time', String(shareableMinute))
-    window.history.replaceState(null, '', url)
+    // Safari rejects more than 100 History API writes in 10 seconds. Playback
+    // crosses integer timeline minutes faster than that, so wait for the value
+    // to settle and persist only the final URL. shareUrl() remains synchronous.
+    const timeout = window.setTimeout(() => {
+      const url = new URL(window.location.href)
+      url.searchParams.set('lat', location.lat.toFixed(6))
+      url.searchParams.set('lng', location.lng.toFixed(6))
+      url.searchParams.set('time', String(shareableMinute))
+      window.history.replaceState(null, '', url)
+    }, URL_SYNC_DELAY_MS)
+
+    return () => window.clearTimeout(timeout)
   }, [location.lat, location.lng, shareableMinute])
 
   const shareUrl = useCallback(() => {
