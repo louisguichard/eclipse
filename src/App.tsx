@@ -297,12 +297,19 @@ function App() {
             {PROVENANCE.map((source) => (
               <span key={source.name}>{source.label} · {source.name}</span>
             ))}
-            <span>
-              <button type="button" onClick={() => { setAbout(true); setMobileLayer(null) }}>
-                Méthode, limites et mentions légales
-              </button>
-            </span>
           </div>
+
+          {/* This line opens a panel — it is an action, not a credit. Set at
+              the credits' own weight it read as one more footnote, so it is
+              underlined and a shade brighter: a link, nothing more. */}
+          <button
+            type="button"
+            role="menuitem"
+            className="mobile-title-menu__about"
+            onClick={() => { setAbout(true); setMobileLayer(null) }}
+          >
+            Méthode, limites et mentions légales
+          </button>
         </div>
       </header>
 

@@ -182,4 +182,22 @@ describe('LocationSearch', () => {
     )
     expect(document.activeElement).toBe(view.getByRole('combobox'))
   })
+
+  it('releases focus when the pointer goes to the scene, so the caret stops blinking', async () => {
+    const scene = document.createElement('div')
+    document.body.append(scene)
+    const view = render(<LocationSearch observer={OBSERVER} onSelect={vi.fn()} />)
+    const input = view.getByRole('combobox') as HTMLInputElement
+    input.focus()
+    expect(document.activeElement).toBe(input)
+
+    // Inside the field the caret stays where the reader put it.
+    fireEvent.pointerDown(input)
+    expect(document.activeElement).toBe(input)
+
+    // The panorama swallows the event to turn the view, so the blur is ours.
+    fireEvent.pointerDown(scene)
+    expect(document.activeElement).not.toBe(input)
+    scene.remove()
+  })
 })

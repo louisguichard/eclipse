@@ -197,6 +197,9 @@ describe('mobile view routing', () => {
       'Contact — copier hello@louisguichard.fr',
       'Code source',
       'Auteur — louisguichard.fr',
+      // Last, under the sources, but a row of the menu like the others: it
+      // opens the About panel rather than crediting anything.
+      'Méthode, limites et mentions légales',
     ])
     expect(screen.getByRole('menuitem', { name: 'Auteur — louisguichard.fr', hidden: true })).toBeInTheDocument()
     expect(screen.queryByRole('menuitem', { name: 'Ma position', hidden: true })).not.toBeInTheDocument()

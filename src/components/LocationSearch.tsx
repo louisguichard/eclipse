@@ -39,6 +39,7 @@ function liveMessage(status: SearchStatus, results: SearchResult[]): string {
 }
 
 export function LocationSearch({ observer, onSelect, autoFocus = false }: LocationSearchProps) {
+  const wrapRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
   const selectionControllerRef = useRef<AbortController | null>(null)
   const skipNextSearchRef = useRef(false)
@@ -109,6 +110,24 @@ export function LocationSearch({ observer, onSelect, autoFocus = false }: Locati
 
   useEffect(() => () => selectionControllerRef.current?.abort(), [])
 
+  /**
+   * Dragging the panorama swallows the pointer event to turn the view, which
+   * also stops the browser from moving focus — so the caret went on blinking in
+   * a field nobody was typing in. Releasing focus ourselves is what makes it go
+   * away when attention moves elsewhere on the page.
+   */
+  useEffect(() => {
+    const release = (event: PointerEvent) => {
+      const input = inputRef.current
+      if (!input || document.activeElement !== input) return
+      const { target } = event
+      if (target instanceof Node && wrapRef.current?.contains(target)) return
+      input.blur()
+    }
+    document.addEventListener('pointerdown', release, true)
+    return () => document.removeEventListener('pointerdown', release, true)
+  }, [])
+
   const selectResult = useCallback(async (result: SearchResult) => {
     selectionControllerRef.current?.abort()
     const controller = new AbortController()
@@ -178,6 +197,7 @@ export function LocationSearch({ observer, onSelect, autoFocus = false }: Locati
 
   return (
     <div
+      ref={wrapRef}
       className="location-search-wrap"
       title={`Position actuelle : ${observer.label}`}
       onBlur={(event) => {

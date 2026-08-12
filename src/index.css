@@ -567,13 +567,14 @@ input:focus-visible {
      the glyph box — ascent plus descent, so the type size is the lever, not the
      line-height — and the field was boxed to 26px inside a 46–56px bar, which
      cropped anything taller at both ends. The field now fills the bar and the
-     type is a notch larger, so the caret is drawn whole with air around it.
-     The ember tint makes it findable against the blurred scene. */
+     type is a notch larger, so the caret is drawn whole with air around it. */
   height: 100%;
   border: 0;
   outline: 0;
   color: var(--ink);
-  caret-color: var(--ember);
+  /* Plain white, like every other text field: a coloured caret read as an
+     accent rather than as a cursor. */
+  caret-color: rgb(247 250 255 / 0.9);
   background: transparent;
   /* 16px is also the threshold under which iOS zooms the page on focus. */
   font-size: 16px;
@@ -1644,6 +1645,37 @@ input:focus-visible {
   font-weight: 600;
   letter-spacing: 0.13em;
   text-transform: uppercase;
+}
+
+/* The line that opens the About panel. It is a link, not a control: the menu's
+   full row geometry made a legal footnote look like a primary action, so all it
+   keeps is a brighter ink than the credits above and an underline. Written as a
+   child selector so it outranks the `.mobile-title-menu > button` rules that
+   follow in the media queries. */
+.mobile-title-menu > .mobile-title-menu__about {
+  display: inline-flex;
+  width: auto;
+  min-height: 0;
+  margin-top: 2px;
+  /* The generous bottom padding is tap target, not spacing: it costs nothing
+     visually since the line has no background. */
+  padding: 5px 12px 12px;
+  color: rgb(255 255 255 / 0.74);
+  background: transparent;
+  font-size: 10.5px;
+  line-height: 1.4;
+  text-decoration: underline;
+  text-decoration-color: rgb(255 255 255 / 0.26);
+  text-underline-offset: 3px;
+  transition: color 160ms var(--ease), text-decoration-color 160ms var(--ease);
+}
+
+@media (hover: hover) {
+  .mobile-title-menu > .mobile-title-menu__about:hover {
+    color: #fff;
+    background: transparent;
+    text-decoration-color: rgb(255 255 255 / 0.55);
+  }
 }
 
 .map-observer-marker {
@@ -3139,15 +3171,6 @@ p.legal-modal__credit {
     font-size: 10px;
   }
 
-  .mobile-title-menu__credits button {
-    padding: 0;
-    border: 0;
-    color: inherit;
-    background: transparent;
-    cursor: pointer;
-    font: inherit;
-  }
-
   .permission-message {
     z-index: 24;
     top: calc(112px + env(safe-area-inset-top) + var(--top-banner-h));
@@ -4038,15 +4061,6 @@ p.legal-modal__credit {
     border-top: 1px solid rgb(255 255 255 / 0.1);
     color: rgb(255 255 255 / 0.35);
     font-size: 9px;
-  }
-
-  .mobile-title-menu__credits button {
-    padding: 0;
-    border: 0;
-    color: inherit;
-    background: transparent;
-    cursor: pointer;
-    font: inherit;
   }
 
   .desktop-hud {

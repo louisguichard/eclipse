@@ -74,9 +74,8 @@ export function AboutModal({ open, onClose }: AboutModalProps) {
           <p>
             Une éclipse partielle n’offre aucun instant sûr à l’œil nu : même à 99 % masqué, le
             Soleil brûle la rétine sans douleur ni signal d’alerte. Les lunettes de soleil, les
-            verres fumés, les films photographiques, un smartphone ou un appareil photo ne
-            protègent pas. Seul un filtre certifié {SAFETY_STANDARD}, intact et non rayé, convient.
-            L’observation par projection sur un écran reste la solution la plus sûre.
+            verres fumés et les films photographiques ne protègent pas. Seul un filtre certifié{' '}
+            {SAFETY_STANDARD}, intact et non rayé, convient.
           </p>
         </div>
 
@@ -97,8 +96,9 @@ export function AboutModal({ open, onClose }: AboutModalProps) {
         <p>
           La couche de relief indiquant les vues dégagées est calculée à partir des données{' '}
           <a href="https://geoservices.ign.fr/lidarhd" target="_blank" rel="noreferrer">IGN LiDAR HD</a>{' '}
-          et <strong>ne couvre aujourd’hui que Paris et l’Île-de-France</strong>. Partout ailleurs,
-          la carte n’analyse pas le relief : seule la direction du Soleil est fournie.
+          et <strong>ne couvre aujourd’hui que les 20 plus grandes agglomérations de France</strong>.
+          Partout ailleurs, la carte n’analyse pas le relief : seule la direction du Soleil est
+          fournie.
         </p>
         <p>
           La météo est une prévision horaire{' '}
@@ -164,8 +164,8 @@ export function AboutModal({ open, onClose }: AboutModalProps) {
         <p>
           Éditeur et directeur de la publication :{' '}
           <a href={SITE_AUTHOR_URL} target="_blank" rel="noreferrer">{SITE_AUTHOR}</a> — projet
-          personnel, non commercial, sans publicité. Hébergeur&nbsp;: {SITE_HOST} — contact&nbsp;:{' '}
-          {CONTACT_EMAIL}
+          personnel, non commercial, sans publicité. Hébergeur&nbsp;: {SITE_HOST}
+          {/* SITE_HOST carries its own final period — "Vercel Inc." */}
         </p>
 
         <div className="legal-modal__contact">
