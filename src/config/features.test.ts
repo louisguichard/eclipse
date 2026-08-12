@@ -17,4 +17,26 @@ describe('feature flags', () => {
     const { MAINTENANCE_BANNER_ENABLED } = await import('./features')
     expect(MAINTENANCE_BANNER_ENABLED).toBe(true)
   })
+
+  it('shows the Speakea banner to everyone by default', async () => {
+    vi.stubEnv('VITE_SPEAKEA_BANNER_PERCENTAGE', '')
+    const { SPEAKEA_BANNER_PERCENTAGE } = await import('./features')
+    expect(SPEAKEA_BANNER_PERCENTAGE).toBe(100)
+  })
+
+  it('accepts and bounds the Speakea rollout percentage', async () => {
+    vi.stubEnv('VITE_SPEAKEA_BANNER_PERCENTAGE', ' 24.5 ')
+    let features = await import('./features')
+    expect(features.SPEAKEA_BANNER_PERCENTAGE).toBe(24.5)
+
+    vi.resetModules()
+    vi.stubEnv('VITE_SPEAKEA_BANNER_PERCENTAGE', '-8')
+    features = await import('./features')
+    expect(features.SPEAKEA_BANNER_PERCENTAGE).toBe(0)
+
+    vi.resetModules()
+    vi.stubEnv('VITE_SPEAKEA_BANNER_PERCENTAGE', '180')
+    features = await import('./features')
+    expect(features.SPEAKEA_BANNER_PERCENTAGE).toBe(100)
+  })
 })

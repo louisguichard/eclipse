@@ -20,6 +20,7 @@ import { MaintenanceBanner } from './components/MaintenanceBanner'
 import { MapView } from './components/MapView'
 import { MobileDialTimeline } from './components/MobileDialTimeline'
 import { SceneFooter } from './components/SceneFooter'
+import { SpeakeaBanner } from './components/SpeakeaBanner'
 import { StreetView } from './components/StreetView'
 import { Timeline } from './components/Timeline'
 import { formatLocalDateTime } from './lib/format'
@@ -182,6 +183,7 @@ function App() {
   return (
     <div className="app-shell" data-mobile-view={mobileView}>
       {MAINTENANCE_BANNER_ENABLED && <MaintenanceBanner />}
+      <SpeakeaBanner />
 
       {!online && (
         <div className="offline-banner" role="status">

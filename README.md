@@ -63,6 +63,7 @@ VITE_BASEMAP_PMTILES_URL=
 VITE_VISIBILITY_TILE_BASE_URL=https://cdn.example.fr/eclipse/visibility
 VITE_CLOUDFLARE_WEB_ANALYTICS_TOKEN=votre_token_de_site_optionnel
 VITE_MAINTENANCE_BANNER_ENABLED=false
+VITE_SPEAKEA_BANNER_PERCENTAGE=100
 ```
 
 `VITE_BASEMAP_STYLE_URL` configure le style MapLibre. Le style OpenFreeMap par
@@ -78,6 +79,12 @@ et la disponibilité, fournissez une archive Protomaps compatible via
 lorsque sa valeur est exactement `true` (casse et espaces ignorés). Utilisez
 `false` ou supprimez la variable pour le masquer, puis redéployez : comme tous
 les flags `VITE_*`, sa valeur est intégrée au bundle lors du build.
+
+`VITE_SPEAKEA_BANNER_PERCENTAGE` contrôle la part des navigateurs auxquels le
+bandeau Speakea peut être présenté. La valeur, comprise entre `0` et `100`, vaut
+`100` par défaut. Chaque navigateur reçoit une cohorte stable conservée dans
+son stockage local : diminuer le pourcentage conserve donc un sous-ensemble
+stable des visiteurs. Toute modification nécessite un redéploiement.
 
 Les variables `VITE_*` sont injectées dans le bundle client : elles sont
 publiques. Ne placez donc jamais de secret dans une variable préfixée `VITE_`.
@@ -164,7 +171,7 @@ Pour reproduire exactement une installation CI, utilisez `npm ci` plutôt que `n
 1. importez le dépôt dans Vercel ;
 2. laissez **Root Directory** à la racine du dépôt (`.`) ;
 3. gardez le preset **Vite**, la commande `npm run build` et le dossier de sortie `dist` ;
-4. configurez, si utilisés, `VITE_BASEMAP_PMTILES_URL`, `VITE_VISIBILITY_TILE_BASE_URL`, `VITE_CLOUDFLARE_WEB_ANALYTICS_TOKEN` et `VITE_MAINTENANCE_BANNER_ENABLED` dans **Project Settings → Environment Variables** ;
+4. configurez, si utilisés, `VITE_BASEMAP_PMTILES_URL`, `VITE_VISIBILITY_TILE_BASE_URL`, `VITE_CLOUDFLARE_WEB_ANALYTICS_TOKEN`, `VITE_MAINTENANCE_BANNER_ENABLED` et `VITE_SPEAKEA_BANNER_PERCENTAGE` dans **Project Settings → Environment Variables** ;
 5. choisissez explicitement les environnements Production/Preview/Development voulus ;
 6. déployez, puis testez depuis le domaine final le chargement CORS du fond, de la recherche et des tuiles Street View ;
 7. redéployez après toute modification d’une variable `VITE_*`, car elle est incorporée à la compilation.
