@@ -30,16 +30,16 @@ const SEARCH_POINT: ObserverLocation = {
 }
 
 const snapshot = {
-  date: new Date('2026-08-12T18:17:00.000Z'),
-  obscuration: 0.92,
-  sun: { azimuth: 284, altitude: 7.8 },
-  moon: { azimuth: 284, altitude: 7.8 },
+  date: new Date('2027-08-02T09:01:00.000Z'),
+  obscuration: 0.512,
+  sun: { azimuth: 123, altitude: 42.9 },
+  moon: { azimuth: 123, altitude: 42.9 },
   circumstances: {
     visible: true,
-    begin: { time: new Date('2026-08-12T17:22:00.000Z'), altitude: 16 },
-    maximum: { time: new Date('2026-08-12T18:17:00.000Z'), altitude: 8 },
-    end: { time: new Date('2026-08-12T19:09:00.000Z'), altitude: 0 },
-    peakObscuration: 0.92,
+    begin: { time: new Date('2027-08-02T08:01:00.000Z'), altitude: 34 },
+    maximum: { time: new Date('2027-08-02T09:01:00.000Z'), altitude: 43 },
+    end: { time: new Date('2027-08-02T10:05:00.000Z'), altitude: 52 },
+    peakObscuration: 0.512,
     kind: 'partial',
   },
 } as EclipseSnapshot
@@ -48,7 +48,7 @@ vi.mock('./hooks/useObserverLocation', () => ({
   useObserverLocation: () => ({
     location: { lat: 48.8566, lng: 2.3522, label: 'Paris', source: 'default' },
     setLocation: mocks.setLocation,
-    minute: 62,
+    minute: 61,
     setMinute: mocks.setMinute,
     requestGeolocation: mocks.requestGeolocation,
     geolocationStatus: 'idle',
@@ -56,16 +56,6 @@ vi.mock('./hooks/useObserverLocation', () => ({
   }),
 }))
 vi.mock('./hooks/useEclipse', () => ({ useEclipse: () => ({ snapshot, error: null }) }))
-vi.mock('./hooks/useWeather', () => ({
-  useWeather: () => ({
-    status: 'ready',
-    error: null,
-    refresh: vi.fn(),
-    timeZone: 'Europe/Paris',
-    snapshot: { cloudCover: 10 },
-  }),
-}))
-
 vi.mock('./components/LocationSearch', () => ({
   LocationSearch: ({ onSelect }: { onSelect: (location: ObserverLocation) => void }) => (
     <button type="button" onClick={() => onSelect(SEARCH_POINT)}>Choisir adresse</button>
@@ -109,8 +99,6 @@ vi.mock('./components/Timeline', () => ({
     )
   },
 }))
-vi.mock('./components/WeatherCard', () => ({ WeatherCard: () => null }))
-
 afterEach(() => {
   cleanup()
   vi.clearAllMocks()
@@ -204,7 +192,7 @@ describe('mobile view routing', () => {
     expect(screen.getByRole('menuitem', { name: 'Auteur — louisguichard.fr', hidden: true })).toBeInTheDocument()
     expect(screen.queryByRole('menuitem', { name: 'Ma position', hidden: true })).not.toBeInTheDocument()
 
-    fireEvent.click(screen.getByRole('button', { name: /Éclipse.*12 août 2026/ }))
+    fireEvent.click(screen.getByRole('button', { name: /Éclipse.*2 août 2027/ }))
     expect(screen.getByRole('button', { name: 'Fermer' })).toHaveClass('mobile-layer-scrim--menu')
     expect(document.querySelector('.desktop-search-cluster')).toHaveAttribute('inert')
     expect(document.querySelector('.mobile-search-trigger')).toHaveAttribute('inert')
@@ -219,7 +207,7 @@ describe('mobile view routing', () => {
     Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true })
     render(<App />)
 
-    fireEvent.click(screen.getByRole('button', { name: /Éclipse.*12 août 2026/ }))
+    fireEvent.click(screen.getByRole('button', { name: /Éclipse.*2 août 2027/ }))
     fireEvent.click(screen.getByRole('menuitem', { name: 'Partager — copier le lien' }))
 
     await waitFor(() => {
@@ -247,6 +235,6 @@ describe('mobile view routing', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Desktop pause' }))
     expect(screen.getByRole('button', { name: 'Desktop lecture' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Mobile lecture' })).toBeInTheDocument()
-    expect(mocks.setMinute).toHaveBeenCalledWith(7)
+    expect(mocks.setMinute).toHaveBeenCalledWith(1)
   })
 })

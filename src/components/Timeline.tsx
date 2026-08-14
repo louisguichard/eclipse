@@ -41,7 +41,7 @@ export function Timeline({
       <section className="timeline timeline--unavailable" aria-label="Chronologie de l’éclipse">
         <div className="timeline__unavailable" role="status">
           <strong>Éclipse non visible depuis ce lieu</strong>
-          <span>Essayez une adresse en Europe, en Afrique du Nord ou en Amérique du Nord.</span>
+          <span>Essayez une adresse en Europe, en Afrique ou au Moyen-Orient.</span>
         </div>
       </section>
     )
@@ -62,7 +62,10 @@ export function Timeline({
         >
           {playing ? <Pause size={18} fill="currentColor" /> : <Play size={18} fill="currentColor" />}
         </button>
-        <strong>{formatLocalTime(snapshot.date, timeZone)}</strong>
+        <span className="timeline__clock">
+          <strong>{formatLocalTime(snapshot.date, timeZone)}</strong>
+          <span>{timeZone === 'UTC' ? 'UTC' : 'heure locale'}</span>
+        </span>
       </div>
 
       <div className="timeline__track-wrap">

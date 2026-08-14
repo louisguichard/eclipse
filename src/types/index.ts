@@ -28,7 +28,7 @@ export type EclipseEvent = {
 }
 
 export type EclipseCircumstances = {
-  /** Whether any part of the 12 August 2026 eclipse is above the horizon. */
+  /** Whether any part of the 2 August 2027 eclipse is above the horizon. */
   visible: boolean
   begin: EclipseEvent
   maximum: EclipseEvent

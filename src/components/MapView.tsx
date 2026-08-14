@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { AlertTriangle, Compass, Pointer } from 'lucide-react'
 import mapLibreWorkerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url'
 import type {
@@ -9,20 +9,11 @@ import type {
   Marker as MapLibreMarker,
 } from 'maplibre-gl'
 import { buildSunTrajectory } from '../lib/astronomy'
-import { VISIBILITY_DATASETS, VISIBILITY_LAYER_OPACITY } from '../config/visibility'
 import { destinationPoint } from '../lib/geometry'
 import { formatLocalTime } from '../lib/format'
 import { applyBasemapLandTone, resolveBasemapStyle } from '../lib/mapLibreBasemap'
-import { createVisibilityRasterDefinition } from '../lib/mapLibreVisibility'
-import { ensureVisibilityTileProtocol } from '../lib/mapLibreVisibilityProtocol'
 import { captureOperationalError, isMapLibreShaderCompilationError } from '../lib/sentry'
-import {
-  knownVisibilityCoverageAtPoint,
-  preferredVisibilityDatasetAtPoint,
-  visibilityDatasetsForView,
-} from '../lib/visibilityTiles'
 import type { EclipseSnapshot, ObserverLocation } from '../types'
-import type { GeographicBounds, VisibilityDatasetManifest } from '../types/visibility'
 
 type MapViewProps = {
   observer: ObserverLocation
@@ -141,76 +132,11 @@ function MapFallback({
   )
 }
 
-type VisibilityLegendProps = {
-  preferredVisibilityDataset?: VisibilityDatasetManifest | null
-  knownVisibilityDataset?: VisibilityDatasetManifest | null
-}
-
 /** "Cliquez" on a desktop pointer, "Appuyez" on a touchscreen. */
 function pointerVerb(): string {
   const fine = typeof window.matchMedia === 'function'
     && window.matchMedia('(hover: hover) and (pointer: fine)').matches
   return fine ? 'Cliquez' : 'Appuyez'
-}
-
-function visibilityDetail(manifest: VisibilityDatasetManifest): string {
-  const reference = manifest.reference.mode === 'fixed-instant'
-    ? formatLocalTime(new Date(manifest.reference.timeUtc!), 'Europe/Paris')
-    : 'maximum local'
-  const resolution = manifest.surface.resolutionMeters
-  return [
-    `${manifest.label} · ${reference} · hors météo`,
-    resolution === null ? manifest.attribution : `${manifest.attribution} · Résolution ${resolution} m`,
-    manifest.disclaimer,
-    ...(manifest.warnings ?? []),
-  ].filter(Boolean).join('\n')
-}
-
-/**
- * One line names the yellow; everything else is a tooltip.
- *
- * The dataset label, its reference instant and the IGN credit used to be
- * printed under it, which turned a legend into a paragraph covering the corner
- * of a card barely 300 px wide. The credit the Licence Ouverte requires now
- * lives in the About panel, where it can be read rather than merely displayed.
- */
-export function VisibilityLegend({
-  preferredVisibilityDataset,
-  knownVisibilityDataset,
-}: VisibilityLegendProps) {
-  return (
-    <p
-      className={`map-legend ${preferredVisibilityDataset ? '' : 'map-legend--unavailable'}`}
-      title={
-        preferredVisibilityDataset
-          ? visibilityDetail(preferredVisibilityDataset)
-          : knownVisibilityDataset?.unavailableReason
-            ?? 'Aucune donnée de visibilité publiée pour cette zone.'
-      }
-    >
-      <span className="map-legend__swatch" aria-hidden="true" />
-      <span className="map-legend__copy">
-        <strong>{preferredVisibilityDataset ? 'En jaune : dégagement probable' : 'Zones de visibilité'}</strong>
-        {!preferredVisibilityDataset && (
-          <span>
-            {knownVisibilityDataset
-              ? 'Données momentanément indisponibles'
-              : 'Couche LiDAR disponible dans les 20 plus grandes agglomérations de France'}
-          </span>
-        )}
-      </span>
-    </p>
-  )
-}
-
-function geographicViewport(map: MapLibreMap): GeographicBounds {
-  const bounds = map.getBounds()
-  return {
-    north: bounds.getNorth(),
-    south: bounds.getSouth(),
-    east: bounds.getEast(),
-    west: bounds.getWest(),
-  }
 }
 
 function addSolarLayers(map: MapLibreMap) {
@@ -266,8 +192,6 @@ export function MapView({
   const markerRef = useRef<MapLibreMarker | null>(null)
   const observerRef = useRef(observer)
   const onLocationChangeRef = useRef(onLocationChange)
-  const visibilityLayerIdsRef = useRef<Map<string, string>>(new Map())
-  const activeVisibilityKeyRef = useRef<string | null>(null)
   const [shouldInitialize, setShouldInitialize] = useState(active)
   const [status, setStatus] = useState<MapStatus>('idle')
   // The hint replays each time the map is opened, until a first tap proves it
@@ -277,40 +201,6 @@ export function MapView({
 
   observerRef.current = observer
   onLocationChangeRef.current = onLocationChange
-
-  const preferredVisibilityDataset = preferredVisibilityDatasetAtPoint(
-    VISIBILITY_DATASETS,
-    observer,
-  )
-  const knownVisibilityDataset = knownVisibilityCoverageAtPoint(
-    VISIBILITY_DATASETS,
-    observer,
-  )
-
-  const syncVisibilityLayers = useCallback(() => {
-    const map = mapRef.current
-    if (!map || visibilityLayerIdsRef.current.size === 0) return
-
-    const visibleDatasets = visibilityDatasetsForView(
-      VISIBILITY_DATASETS,
-      observerRef.current,
-      geographicViewport(map),
-      map.getZoom(),
-    ).filter(({ id }) => visibilityLayerIdsRef.current.has(id))
-    const visibleIds = new Set(visibleDatasets.map(({ id }) => id))
-    const nextKey = visibleDatasets.map(({ id }) => id).join('|')
-    if (nextKey === activeVisibilityKeyRef.current) return
-
-    for (const [datasetId, layerId] of visibilityLayerIdsRef.current) {
-      if (!map.getLayer(layerId)) continue
-      map.setLayoutProperty(
-        layerId,
-        'visibility',
-        visibleIds.has(datasetId) ? 'visible' : 'none',
-      )
-    }
-    activeVisibilityKeyRef.current = nextKey
-  }, [])
 
   useEffect(() => {
     if (shouldInitialize || active) {
@@ -345,13 +235,11 @@ export function MapView({
   useEffect(() => {
     if (!shouldInitialize) return undefined
 
-    const initializedVisibilityLayerIds = visibilityLayerIdsRef.current
     let cancelled = false
     let initializedMap: MapLibreMap | null = null
     let initializedMarker: MapLibreMarker | null = null
     let handleLoad: (() => void) | null = null
     let handleClick: ((event: MapMouseEvent) => void) | null = null
-    let handleMoveEnd: (() => void) | null = null
     let handleError: ((event: MapLibreErrorEvent) => void) | null = null
     let rendererFailed = false
 
@@ -361,7 +249,6 @@ export function MapView({
       initializedMap = null
       initializedMarker = null
       if (map && handleClick) map.off('click', handleClick)
-      if (map && handleMoveEnd) map.off('moveend', handleMoveEnd)
       if (map && handleError) map.off('error', handleError)
       if (map && handleLoad) map.off('load', handleLoad)
       marker?.remove()
@@ -372,8 +259,6 @@ export function MapView({
         console.warn('MapLibre cleanup failed', error)
       }
       if (mapRef.current === map) mapRef.current = null
-      initializedVisibilityLayerIds.clear()
-      activeVisibilityKeyRef.current = null
     }
 
     function handleWindowError(event: globalThis.ErrorEvent) {
@@ -401,7 +286,6 @@ export function MapView({
         // After Vite code-splitting that sibling file does not exist, so bundle
         // the worker explicitly and point MapLibre at the generated asset.
         maplibre.setWorkerUrl(mapLibreWorkerUrl)
-        ensureVisibilityTileProtocol(maplibre)
         const style = await resolveBasemapStyle(maplibre)
         const host = hostRef.current
         if (cancelled || !host) return
@@ -452,7 +336,6 @@ export function MapView({
             source: 'map',
           })
         }
-        handleMoveEnd = syncVisibilityLayers
         handleError = (event) => {
           if (baseStyleReady || cancelled) return
           console.error('MapLibre basemap failed to load', event.error)
@@ -465,39 +348,15 @@ export function MapView({
           baseStyleReady = true
           applyBasemapLandTone(map)
 
-          const firstSymbolLayerId = map.getStyle().layers.find(
-            ({ type }) => type === 'symbol',
-          )?.id
-          for (const manifest of [...VISIBILITY_DATASETS].reverse()) {
-            const definition = createVisibilityRasterDefinition(
-              manifest,
-              VISIBILITY_LAYER_OPACITY,
-            )
-            if (!definition) continue
-            try {
-              map.addSource(definition.sourceId, definition.source)
-              map.addLayer(definition.layer, firstSymbolLayerId)
-              visibilityLayerIdsRef.current.set(
-                definition.datasetId,
-                definition.layerId,
-              )
-            } catch (error) {
-              console.warn(`Visibility layer unavailable: ${manifest.id}`, error)
-            }
-          }
-
           try {
             addSolarLayers(map)
           } catch (error) {
             console.warn('Solar map layers unavailable', error)
           }
-          activeVisibilityKeyRef.current = null
-          syncVisibilityLayers()
           setStatus('ready')
         }
 
         map.on('click', handleClick)
-        map.on('moveend', handleMoveEnd)
         map.on('error', handleError)
         map.once('load', handleLoad)
       } catch (error) {
@@ -517,12 +376,7 @@ export function MapView({
       window.removeEventListener('error', handleWindowError)
       releaseMap()
     }
-  }, [shouldInitialize, syncVisibilityLayers])
-
-  useEffect(() => {
-    if (status !== 'ready') return
-    syncVisibilityLayers()
-  }, [observer.lat, observer.lng, status, syncVisibilityLayers])
+  }, [shouldInitialize])
 
   useEffect(() => {
     const map = mapRef.current
@@ -656,10 +510,6 @@ export function MapView({
       {status === 'error' && (
         <MapFallback observer={observer} snapshot={snapshot} timeZone={timeZone} />
       )}
-      <VisibilityLegend
-        preferredVisibilityDataset={preferredVisibilityDataset}
-        knownVisibilityDataset={knownVisibilityDataset}
-      />
     </div>
   )
 }

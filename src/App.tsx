@@ -26,7 +26,6 @@ import { Timeline } from './components/Timeline'
 import { formatLocalDateTime } from './lib/format'
 import { useEclipse } from './hooks/useEclipse'
 import { useObserverLocation } from './hooks/useObserverLocation'
-import { useWeather } from './hooks/useWeather'
 import { useTimelinePlayback } from './hooks/useTimelinePlayback'
 import { TIMELINE } from './config/eclipse'
 import { MAINTENANCE_BANNER_ENABLED } from './config/features'
@@ -51,10 +50,6 @@ function App() {
     shareUrl,
   } = useObserverLocation()
   const { snapshot, error: astronomyError } = useEclipse(location, minute)
-  const weather = useWeather(
-    location,
-    snapshot?.date ?? new Date('2026-08-12T18:17:00.000Z'),
-  )
   const [mobileView, setMobileView] = useState<MobileView>('street')
   const [mobileLayer, setMobileLayer] = useState<'menu' | 'search' | null>(null)
   const [desktopMapExpanded, setDesktopMapExpanded] = useState(false)
@@ -66,8 +61,9 @@ function App() {
   const [online, setOnline] = useState(navigator.onLine)
   const [about, setAbout] = useState(false)
   const debug = useMemo(() => new URLSearchParams(window.location.search).get('debug') === 'true', [])
-  const cloudCover = weather.snapshot?.cloudCover
-  const timeZone = weather.timeZone ?? 'UTC'
+  // Weather is intentionally disabled until forecasts for the 2027 event are
+  // useful again. UTC keeps every shared simulation unambiguous in the meantime.
+  const timeZone = 'UTC'
   const playbackStart = snapshot?.circumstances.visible
     ? (snapshot.circumstances.begin.time.getTime() - TIMELINE.startUtc.getTime()) / 60_000
     : TIMELINE.defaultMinute
@@ -204,8 +200,8 @@ function App() {
         <div className="brand">
           <span className="brand__glyph" aria-hidden="true" />
           <span className="brand__text brand__text--desktop">
-            <h1>Éclipse</h1>
-            <p>12 août 2026</p>
+            <h1>Éclipse <span className="brand__year">2027</span></h1>
+            <p>2 août 2027</p>
           </span>
           <button
             type="button"
@@ -215,8 +211,8 @@ function App() {
             onClick={() => setMobileLayer((layer) => layer === 'menu' ? null : 'menu')}
           >
             <span className="brand__text">
-              <strong>Éclipse</strong>
-              <span>12 août 2026</span>
+              <strong>Éclipse <span className="brand__year">2027</span></strong>
+              <span>2 août 2027</span>
             </span>
             <ChevronDown aria-hidden="true" size={12} />
           </button>
@@ -342,7 +338,6 @@ function App() {
               onExpandedChange={setExpandedSimulation}
               onPanoramaStateChange={setPanorama}
               onUserPositionChange={selectStreetViewLocation}
-              cloudCover={cloudCover}
               playing={playback.playing}
               debug={debug}
             />
@@ -354,7 +349,7 @@ function App() {
           aria-label="Informations d’observation"
         >
           <aside className="scene-readout" aria-label="Conditions d’observation">
-            <EclipseInfo snapshot={snapshot} cloudCover={cloudCover} />
+            <EclipseInfo snapshot={snapshot} />
           </aside>
 
           <Timeline

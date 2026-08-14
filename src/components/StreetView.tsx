@@ -36,7 +36,6 @@ export type StreetViewProps = {
   timeZone?: string | null
   active: boolean
   expanded: boolean
-  cloudCover?: number | null
   /** Twilight only falls while the eclipse is being played back. */
   playing?: boolean
   onExpandedChange: (value: boolean) => void
@@ -242,7 +241,6 @@ export function StreetView({
   timeZone = null,
   active,
   expanded,
-  cloudCover = null,
   playing = false,
   onExpandedChange,
   onPanoramaStateChange,
@@ -352,7 +350,6 @@ export function StreetView({
             visible={demo || projectedSun.point.visible}
             synchronizedPosition={ready && sunViewportPoint !== null}
             demo={demo}
-            cloudCover={cloudCover}
           />
         )}
 

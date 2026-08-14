@@ -34,29 +34,11 @@ export const PROVENANCE: readonly ProvenanceEntry[] = [
     href: 'https://maps.google.com/help/terms_maps/',
   },
   {
-    label: 'Relief',
-    name: 'IGN LiDAR HD',
-    href: 'https://geoservices.ign.fr/lidarhd',
-  },
-  {
     label: 'Carte',
     name: 'OpenStreetMap',
     href: 'https://www.openstreetmap.org/copyright',
-  },
-  {
-    label: 'Météo',
-    name: 'WeatherAPI.com',
-    href: 'https://www.weatherapi.com/',
   },
 ]
 
 /** The eye-safety line, worded once and reused everywhere it appears. */
 export const SAFETY_STANDARD = 'ISO 12312-2'
-
-/**
- * The Licence Ouverte requires the IGN products to be credited. The credit used
- * to sit on the map card, where it covered the map for everyone to serve a line
- * almost nobody reads; it belongs in the About panel, which is one tap away.
- */
-export const IGN_ATTRIBUTION =
-  '© IGN — LiDAR HD MNT/MNS 2023, édition 2025 · Licence Ouverte 2.0 · résolution 2 m'

@@ -8,13 +8,13 @@ import type { EclipseSnapshot } from '../types'
 import { MobileDialTimeline } from './MobileDialTimeline'
 
 const snapshot = {
-  date: new Date('2026-08-12T18:17:00.000Z'),
+  date: new Date('2027-08-02T09:01:00.000Z'),
   circumstances: {
     visible: true,
-    begin: { time: new Date('2026-08-12T17:22:00.000Z'), altitude: 16 },
-    maximum: { time: new Date('2026-08-12T18:17:00.000Z'), altitude: 8 },
-    end: { time: new Date('2026-08-12T19:09:00.000Z'), altitude: 0 },
-    peakObscuration: 0.92,
+    begin: { time: new Date('2027-08-02T08:01:00.000Z'), altitude: 34 },
+    maximum: { time: new Date('2027-08-02T09:01:00.000Z'), altitude: 43 },
+    end: { time: new Date('2027-08-02T10:05:00.000Z'), altitude: 52 },
+    peakObscuration: 0.512,
     kind: 'partial',
   },
 } as EclipseSnapshot
@@ -37,7 +37,7 @@ describe('MobileDialTimeline', () => {
     const onMinuteChange = vi.fn()
     render(
       <MobileDialTimeline
-        minute={62}
+        minute={61}
         snapshot={snapshot}
         timeZone="Europe/Paris"
         onMinuteChange={onMinuteChange}
@@ -45,22 +45,22 @@ describe('MobileDialTimeline', () => {
       />,
     )
 
-    expect(screen.getByText('20:17')).toBeInTheDocument()
-    expect(screen.getByText('19:22')).toBeInTheDocument()
-    expect(screen.getByText('21:09')).toBeInTheDocument()
+    expect(screen.getByText('11:01')).toBeInTheDocument()
+    expect(screen.getByText('10:01')).toBeInTheDocument()
+    expect(screen.getByText('12:05')).toBeInTheDocument()
 
     const slider = screen.getByRole('slider', { name: 'Heure de l’éclipse' })
     fireEvent.keyDown(slider, { key: 'ArrowRight' })
-    expect(onMinuteChange).toHaveBeenLastCalledWith(63)
+    expect(onMinuteChange).toHaveBeenLastCalledWith(62)
     fireEvent.keyDown(slider, { key: 'ArrowLeft' })
-    expect(onMinuteChange).toHaveBeenLastCalledWith(61)
+    expect(onMinuteChange).toHaveBeenLastCalledWith(60)
   })
 
   it('delegates playback to the same shared controller as desktop', () => {
     const controller = playback()
     render(
       <MobileDialTimeline
-        minute={62}
+        minute={61}
         snapshot={snapshot}
         timeZone="Europe/Paris"
         onMinuteChange={vi.fn()}
@@ -75,7 +75,7 @@ describe('MobileDialTimeline', () => {
   it('removes the dial and playback from the tab order while a menu blocks it', () => {
     render(
       <MobileDialTimeline
-        minute={62}
+        minute={61}
         snapshot={snapshot}
         timeZone="Europe/Paris"
         blocked
@@ -95,7 +95,7 @@ describe('MobileDialTimeline', () => {
     }
     render(
       <MobileDialTimeline
-        minute={62}
+        minute={61}
         snapshot={invisible}
         timeZone="Australia/Sydney"
         onMinuteChange={vi.fn()}

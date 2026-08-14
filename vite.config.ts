@@ -22,9 +22,9 @@ export default defineConfig({
       injectRegister: false,
       includeAssets: ['favicon.svg'],
       manifest: {
-        name: 'Éclipse 2026 — Où regarder ?',
-        short_name: 'Éclipse 2026',
-        description: 'Visualisez l’éclipse solaire du 12 août 2026 depuis n’importe quel lieu dans le monde.',
+        name: 'Éclipse 2027 — Où regarder ?',
+        short_name: 'Éclipse 2027',
+        description: 'Visualisez l’éclipse solaire du 2 août 2027 depuis n’importe quel lieu dans le monde.',
         theme_color: '#07101f',
         background_color: '#07101f',
         display: 'standalone',

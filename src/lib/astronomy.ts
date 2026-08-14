@@ -23,7 +23,7 @@ import type {
 
 const RAD_TO_DEG = 180 / Math.PI
 const DEG_TO_RAD = Math.PI / 180
-const ECLIPSE_SEARCH_START = new Date('2026-08-01T00:00:00.000Z')
+const ECLIPSE_SEARCH_START = new Date('2027-07-20T00:00:00.000Z')
 const TARGET_ECLIPSE_TOLERANCE_MS = 12 * 60 * 60 * 1_000
 const circumstancesCache = new Map<string, EclipseCircumstances>()
 const sunsetCache = new Map<string, Date | null>()
@@ -114,7 +114,7 @@ export function localEclipseCircumstances(location: LatLng): EclipseCircumstance
   }
 
   // SearchLocalSolarEclipse finds the next locally visible event. Outside the
-  // 2026 footprint that can be an eclipse years later, which must never leak
+  // 2027 footprint that can be an eclipse years later, which must never leak
   // into this app's timeline.
   if (
     Math.abs(result.peak.time.date.getTime() - ECLIPSE_GLOBAL_PEAK_UTC.getTime())

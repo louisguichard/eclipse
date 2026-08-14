@@ -1,10 +1,8 @@
 import type { EclipseSnapshot } from '../types'
 
 /**
- * Street View panoramas are shot in flat daylight. The eclipse of 12 August
- * 2026 often occurs with the Sun low over Europe and North Africa, so the real
- * scene can look unlike the stored photograph: warm near the horizon, then
- * rapidly colder and dimmer as the Moon eats the disc.
+ * Street View panoramas are shot in flat daylight. During an eclipse, the real
+ * scene can look unlike the stored photograph as the Moon covers the disc.
  *
  * `gradeTwilight` turns a snapshot into the handful of numbers the overlay
  * needs to reproduce that. Everything is derived, never toggled by hand, so
@@ -92,10 +90,9 @@ export function gradeTwilight(snapshot: EclipseSnapshot): TwilightGrade {
       `sepia(${round(warmth)})`,
       `hue-rotate(${round(-8 * shadow)}deg)`,
     ].join(' '),
-    // Near maximum, Paris combines a low Sun with a very deep partial eclipse.
-    // Let both effects reinforce the amber horizon, while the blue wash and
-    // vignette carry the extra loss of daylight. These layers are used only by
-    // the app-owned desktop treatment; live Google imagery remains unfiltered.
+    // Let low-Sun warmth and eclipse shadow reinforce one another. These layers
+    // are used only by the app-owned treatment; live Google imagery remains
+    // unfiltered.
     emberOpacity: round(clamp01(dusk * 0.7 + shadow * 0.29) * (belowHorizon ? 0.45 : 1)),
     nightOpacity: round(clamp01(intensity * 0.77 + (belowHorizon ? 0.2 : 0))),
     shadeOpacity: round(clamp01(intensity * 0.36 + shadow * 0.05)),

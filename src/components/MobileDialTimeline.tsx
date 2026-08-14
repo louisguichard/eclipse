@@ -122,6 +122,7 @@ export function MobileDialTimeline({
     <section className="mobile-timeline" aria-label="Chronologie de l’éclipse">
       <div className="mobile-timeline__clock">
         <strong>{formatLocalTime(snapshot.date, timeZone)}</strong>
+        <span>{timeZone === 'UTC' ? 'UTC' : 'heure locale'}</span>
       </div>
 
       <div className="mobile-dial">

@@ -434,6 +434,13 @@ input:focus-visible {
   text-transform: uppercase;
 }
 
+.brand__year {
+  color: var(--ember-bright);
+  font-weight: 720;
+  letter-spacing: 0.08em;
+  text-shadow: 0 0 18px rgb(255 176 78 / 0.28);
+}
+
 .brand__text p {
   margin: 3px 0 0;
   color: var(--ink-mute);
@@ -1941,6 +1948,21 @@ input:focus-visible {
   display: flex;
   align-items: center;
   gap: 12px;
+}
+
+.timeline__clock {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+}
+
+.timeline__clock > span {
+  margin-top: 4px;
+  color: var(--ink-mute);
+  font-size: 8px;
+  font-weight: 650;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
 }
 
 .play-button {

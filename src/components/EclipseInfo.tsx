@@ -4,10 +4,9 @@ import type { EclipseSnapshot } from '../types'
 
 type EclipseInfoProps = {
   snapshot: EclipseSnapshot
-  cloudCover?: number | null
 }
 
-export function EclipseInfo({ snapshot, cloudCover = null }: EclipseInfoProps) {
+export function EclipseInfo({ snapshot }: EclipseInfoProps) {
   if (!snapshot.circumstances.visible) {
     return (
       <section
@@ -16,7 +15,7 @@ export function EclipseInfo({ snapshot, cloudCover = null }: EclipseInfoProps) {
         role="status"
       >
         <strong>Non visible ici</strong>
-        <p>L’éclipse du 12 août 2026 ne sera pas observable depuis ce lieu.</p>
+        <p>L’éclipse du 2 août 2027 ne sera pas observable depuis ce lieu.</p>
       </section>
     )
   }
@@ -42,15 +41,6 @@ export function EclipseInfo({ snapshot, cloudCover = null }: EclipseInfoProps) {
         <div>
           <dt>Hauteur</dt>
           <dd>{formatDegrees(snapshot.sun.altitude)}</dd>
-        </div>
-        <div>
-          <dt>
-            Nuages
-            <a href="https://www.weatherapi.com/" target="_blank" rel="noreferrer">
-              WeatherAPI.com
-            </a>
-          </dt>
-          <dd>{cloudCover == null ? '—' : `${Math.round(cloudCover)} %`}</dd>
         </div>
       </dl>
     </section>

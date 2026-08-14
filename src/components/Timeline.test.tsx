@@ -8,15 +8,15 @@ import type { EclipseSnapshot } from '../types'
 import { Timeline } from './Timeline'
 
 const snapshot = {
-  date: new Date('2026-08-12T18:17:00.000Z'),
-  obscuration: 0.92,
+  date: new Date('2027-08-02T09:01:00.000Z'),
+  obscuration: 0.512,
   phaseLabel: 'Maximum',
   circumstances: {
     visible: true,
-    begin: { time: new Date('2026-08-12T17:22:00.000Z'), altitude: 16 },
-    maximum: { time: new Date('2026-08-12T18:17:00.000Z'), altitude: 8 },
-    end: { time: new Date('2026-08-12T19:09:00.000Z'), altitude: 0 },
-    peakObscuration: 0.92,
+    begin: { time: new Date('2027-08-02T08:01:00.000Z'), altitude: 34 },
+    maximum: { time: new Date('2027-08-02T09:01:00.000Z'), altitude: 43 },
+    end: { time: new Date('2027-08-02T10:05:00.000Z'), altitude: 52 },
+    peakObscuration: 0.512,
     kind: 'partial',
   },
 } as EclipseSnapshot
@@ -39,7 +39,7 @@ describe('Timeline', () => {
     const onMinuteChange = vi.fn()
     render(
       <Timeline
-        minute={62}
+        minute={61}
         snapshot={snapshot}
         timeZone="Europe/Paris"
         onMinuteChange={onMinuteChange}
@@ -48,21 +48,21 @@ describe('Timeline', () => {
     )
 
     const slider = screen.getByRole('slider', { name: 'Heure simulée' })
-    expect(slider).toHaveAttribute('min', '7')
-    expect(slider).toHaveAttribute('max', '114')
+    expect(slider).toHaveAttribute('min', '1')
+    expect(slider).toHaveAttribute('max', '125')
     expect(slider).toHaveAttribute('step', 'any')
-    expect(screen.getByText('19:22')).toBeInTheDocument()
-    expect(screen.getByText('21:09')).toBeInTheDocument()
+    expect(screen.getByText('10:01')).toBeInTheDocument()
+    expect(screen.getByText('12:05')).toBeInTheDocument()
 
-    fireEvent.click(screen.getByRole('button', { name: 'Aller au maximum, 20:17' }))
-    expect(onMinuteChange).toHaveBeenCalledWith(62)
+    fireEvent.click(screen.getByRole('button', { name: 'Aller au maximum, 11:01' }))
+    expect(onMinuteChange).toHaveBeenCalledWith(61)
   })
 
   it('delegates playback to the shared controller', () => {
     const controller = playback()
     render(
       <Timeline
-        minute={62}
+        minute={61}
         snapshot={snapshot}
         timeZone="Europe/Paris"
         onMinuteChange={vi.fn()}
@@ -96,7 +96,7 @@ describe('Timeline', () => {
     const controller = playback(true)
     render(
       <Timeline
-        minute={62}
+        minute={61}
         snapshot={snapshot}
         timeZone="Europe/Paris"
         onMinuteChange={vi.fn()}
@@ -111,7 +111,7 @@ describe('Timeline', () => {
   it('formats every contact in the selected location time zone', () => {
     render(
       <Timeline
-        minute={62}
+        minute={61}
         snapshot={snapshot}
         timeZone="America/New_York"
         onMinuteChange={vi.fn()}
@@ -119,9 +119,9 @@ describe('Timeline', () => {
       />,
     )
 
-    expect(screen.getAllByText('14:17')).toHaveLength(2)
-    expect(screen.getByText('13:22')).toBeInTheDocument()
-    expect(screen.getByText('15:09')).toBeInTheDocument()
+    expect(screen.getAllByText('05:01')).toHaveLength(2)
+    expect(screen.getByText('04:01')).toBeInTheDocument()
+    expect(screen.getByText('06:05')).toBeInTheDocument()
   })
 
   it('replaces controls with an honest message outside the eclipse footprint', () => {
@@ -131,7 +131,7 @@ describe('Timeline', () => {
     }
     render(
       <Timeline
-        minute={62}
+        minute={61}
         snapshot={invisible}
         timeZone="Asia/Tokyo"
         onMinuteChange={vi.fn()}

@@ -2,7 +2,6 @@ import { Check, Copy, X } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
 import {
   CONTACT_EMAIL,
-  IGN_ATTRIBUTION,
   PROVENANCE,
   SAFETY_STANDARD,
   SITE_AUTHOR,
@@ -66,7 +65,7 @@ export function AboutModal({ open, onClose }: AboutModalProps) {
         <button type="button" className="modal-close" onClick={onClose} aria-label="Fermer">
           <X size={18} />
         </button>
-        <span className="eyebrow">Éclipse 2026</span>
+        <span className="eyebrow">Éclipse 2027</span>
         <h2 id="about-title">À propos</h2>
 
         <div className="legal-modal__safety">
@@ -93,19 +92,6 @@ export function AboutModal({ open, onClose }: AboutModalProps) {
           être légèrement décalée ou inclinée par rapport à votre point d’observation réel. La
           végétation, les travaux et les constructions récentes n’y figurent pas.
         </p>
-        <p>
-          La couche de relief indiquant les vues dégagées est calculée à partir des données{' '}
-          <a href="https://geoservices.ign.fr/lidarhd" target="_blank" rel="noreferrer">IGN LiDAR HD</a>{' '}
-          et <strong>ne couvre aujourd’hui que les 20 plus grandes agglomérations de France</strong>.
-          Partout ailleurs, la carte n’analyse pas le relief : seule la direction du Soleil est
-          fournie.
-        </p>
-        <p>
-          La météo est une prévision horaire{' '}
-          <a href="https://www.weatherapi.com/" target="_blank" rel="noreferrer">WeatherAPI.com</a>,
-          susceptible d’évoluer jusqu’à l’événement. Elle ne garantit ni l’absence de nuages, ni la
-          visibilité réelle.
-        </p>
 
         <h3>Ce que l’application ne fait pas</h3>
         <p>
@@ -124,7 +110,6 @@ export function AboutModal({ open, onClose }: AboutModalProps) {
             </li>
           ))}
         </ul>
-        <p className="legal-modal__credit">{IGN_ATTRIBUTION}</p>
         <p>
           Le code de l’application est public :{' '}
           <a href={SITE_REPOSITORY} target="_blank" rel="noreferrer">github.com/louisguichard/eclipse</a>.
@@ -139,12 +124,8 @@ export function AboutModal({ open, onClose }: AboutModalProps) {
         <p>
           Pour afficher une vue, le point choisi est envoyé à Google Street View — qui peut traiter
           votre adresse IP et ces coordonnées selon sa{' '}
-          <a href="https://policies.google.com/privacy" target="_blank" rel="noreferrer">politique de confidentialité</a>{' '}
-          — puis, arrondi, à WeatherAPI.com pour la prévision, qui peut aussi traiter votre adresse
-          IP selon sa{' '}
-          <a href="https://www.weatherapi.com/privacy.aspx" target="_blank" rel="noreferrer">
-            politique de confidentialité
-          </a>. Vos recherches d’adresse partent vers la Géoplateforme (France) ou CartoCiudad
+          <a href="https://policies.google.com/privacy" target="_blank" rel="noreferrer">politique de confidentialité</a>.
+          Vos recherches d’adresse partent vers la Géoplateforme (France) ou CartoCiudad
           (Espagne), ou sont traitées localement. Les panoramas sont assemblés en mémoire dans le
           navigateur et ne transitent par aucun serveur du projet.
         </p>
@@ -161,13 +142,6 @@ export function AboutModal({ open, onClose }: AboutModalProps) {
           documentés, qui peuvent changer ou cesser de répondre sans préavis ; leur usage reste
           soumis aux{' '}
           <a href="https://maps.google.com/help/terms_maps/" target="_blank" rel="noreferrer">conditions Google Maps</a>.
-        </p>
-        <p>
-          Les informations météorologiques sont fournies à titre général. Les prévisions sont
-          probabilistes et peuvent être inexactes pour un lieu ou une heure précise. Elles ne
-          doivent pas être la seule base d’une décision concernant la sécurité des personnes,
-          l’aviation, la navigation maritime ou la gestion d’une urgence : consultez toujours les
-          services météorologiques officiels et les autorités compétentes dans ces situations.
         </p>
 
         <h3>Mentions légales</h3>

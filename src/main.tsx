@@ -3,7 +3,6 @@ import { createRoot } from 'react-dom/client'
 import './index.css'
 import App from './App.tsx'
 import { ErrorBoundary } from './components/ErrorBoundary.tsx'
-import { FarewellGate } from './components/Farewell.tsx'
 import { installCloudflareWebAnalytics } from './lib/cloudflareAnalytics.ts'
 import { installSentry } from './lib/sentry.ts'
 import { installServiceWorker } from './lib/serviceWorker.ts'
@@ -18,9 +17,7 @@ if (!rootElement) throw new Error('Application root element not found')
 createRoot(rootElement).render(
   <StrictMode>
     <ErrorBoundary>
-      <FarewellGate>
-        <App />
-      </FarewellGate>
+      <App />
     </ErrorBoundary>
   </StrictMode>,
 )

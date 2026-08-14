@@ -71,7 +71,7 @@ describe('useObserverLocation URL synchronization', () => {
       const params = new URLSearchParams(window.location.search)
       expect(params.get('lat')).toBe('48.873698')
       expect(params.get('lng')).toBe('2.295927')
-      expect(params.get('time')).toBe('62')
+      expect(params.get('time')).toBe('61')
     })
   })
 
@@ -113,7 +113,7 @@ describe('useObserverLocation URL synchronization', () => {
     expect(new URLSearchParams(window.location.search).get('time')).toBe('114')
   })
 
-  it('preserves negative timeline minutes in shared North American links', () => {
+  it('preserves negative timeline minutes in shared links', () => {
     window.history.replaceState(
       null,
       '',
@@ -131,13 +131,13 @@ describe('useObserverLocation URL synchronization', () => {
 
     act(() => {
       result.current.setLocation({
-        lat: 61.2181,
-        lng: -149.9003,
-        label: 'Anchorage',
+        lat: 36.5297,
+        lng: -6.2927,
+        label: 'Cadix',
         source: 'search',
       })
     })
 
-    expect(result.current.minute).toBeCloseTo(-53.1423, 4)
+    expect(result.current.minute).toBeCloseTo(46.7349, 4)
   })
 })

@@ -178,7 +178,7 @@ const OBSERVER: ObserverLocation = {
 }
 
 const SNAPSHOT = {
-  date: new Date('2026-08-12T18:17:00.000Z'),
+  date: new Date('2027-08-02T09:01:00.000Z'),
   sun: { azimuth: 284, altitude: 8 },
   moon: { azimuth: 284, altitude: 8 },
   sunAngularRadius: 0.26,
@@ -189,13 +189,13 @@ const SNAPSHOT = {
   moonOffset: { horizontal: 0, vertical: 0 },
   circumstances: {
     visible: true,
-    begin: { time: new Date('2026-08-12T17:22:00.000Z'), altitude: 16 },
-    maximum: { time: new Date('2026-08-12T18:17:00.000Z'), altitude: 8 },
-    end: { time: new Date('2026-08-12T19:09:00.000Z'), altitude: 0 },
+    begin: { time: new Date('2027-08-02T08:01:00.000Z'), altitude: 34 },
+    maximum: { time: new Date('2027-08-02T09:01:00.000Z'), altitude: 43 },
+    end: { time: new Date('2027-08-02T10:05:00.000Z'), altitude: 52 },
     peakObscuration: 0.92,
     kind: 'partial',
   },
-  sunset: new Date('2026-08-12T19:10:00.000Z'),
+  sunset: new Date('2027-08-02T19:20:00.000Z'),
   phaseLabel: 'Maximum',
 } satisfies EclipseSnapshot
 
@@ -249,7 +249,7 @@ describe('MapView MapLibre lifecycle', () => {
     expect(document.querySelector('.maplibregl-compact-show')).toBeNull()
   })
 
-  it('adds LiDAR and solar layers, handles clicks, then releases MapLibre', async () => {
+  it('adds only the current solar layers, handles clicks, then releases MapLibre', async () => {
     const onLocationChange = vi.fn()
     const { unmount } = render(
       <MapView observer={OBSERVER} snapshot={SNAPSHOT} active onLocationChange={onLocationChange} />,
@@ -258,7 +258,7 @@ describe('MapView MapLibre lifecycle', () => {
     const map = mocks.maps[0]
     await waitFor(() => expect(map.sources.has('solar-direction-source')).toBe(true))
 
-    expect(map.layers.some(({ id }) => String(id).startsWith('visibility-layer-'))).toBe(true)
+    expect(map.layers.some(({ id }) => String(id).startsWith('visibility-layer-'))).toBe(false)
     expect(map.sources.get('solar-direction-source')?.setData).toHaveBeenCalled()
     // The ground is repainted graphite so the card does not read as a hole, and
     // the footprints follow it — in a dense city they are most of what is drawn.

@@ -1,4 +1,3 @@
-import { Cloud } from 'lucide-react'
 import { useId } from 'react'
 import { formatObscuration } from '../lib/format'
 import type { EclipseSnapshot } from '../types'
@@ -16,7 +15,6 @@ export type EclipseOverlayProps = {
   /** Position is also updated imperatively from the panorama render loop. */
   synchronizedPosition?: boolean
   demo?: boolean
-  cloudCover?: number | null
 }
 
 /** The SVG draws the Sun at r=70 inside a 200-unit box. */
@@ -32,7 +30,6 @@ export function EclipseOverlay({
   visible,
   synchronizedPosition = false,
   demo = false,
-  cloudCover = null,
 }: EclipseOverlayProps) {
   const rawId = useId()
   const clipId = `eclipse-sun-${rawId.replaceAll(':', '')}`
@@ -131,11 +128,6 @@ export function EclipseOverlay({
         <span className="sun-marker__mobile-figures">
           <strong>{formatObscuration(snapshot.obscuration)}</strong>
           <span>Du Soleil caché</span>
-          <span className="sun-marker__mobile-clouds">
-            <Cloud size={13} strokeWidth={1.6} />
-            <b>{cloudCover == null ? '—' : `${Math.round(cloudCover)} %`}</b>
-            <span>Nuages</span>
-          </span>
         </span>
       </div>
 
