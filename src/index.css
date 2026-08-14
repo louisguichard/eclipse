@@ -4731,6 +4731,7 @@ p.legal-modal__credit {
   justify-content: center;
   gap: clamp(22px, 4vh, 40px);
   padding: clamp(20px, 5vh, 60px) clamp(18px, 5vw, 64px);
+  cursor: pointer;
   /* The warmth of that light, kept as the faintest wash above the print. */
   background:
     radial-gradient(120% 80% at 50% 4%, rgb(255 176 78 / 0.09), transparent 62%),
@@ -4824,7 +4825,7 @@ p.legal-modal__credit {
   font-weight: 500;
   letter-spacing: 0.16em;
   text-transform: uppercase;
-  /* Quiet, but the only door: nothing else on this page reacts to a click. */
+  /* Quiet but explicit: the whole page shares this same action. */
   color: var(--ink-mute);
   cursor: pointer;
   transition: color 220ms var(--ease);

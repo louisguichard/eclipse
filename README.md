@@ -16,6 +16,7 @@ Le site calcule l’événement 2027 pour n’importe quelles coordonnées avec 
 - recherche d’adresse en France, en Espagne et dans le monde ;
 - sélection par recherche, carte ou géolocalisation ;
 - panorama Street View orienté vers le Soleil ;
+- écran-souvenir d’accueil avec la photo de 2026, le rendez-vous du 2 août 2027 et un accès à la simulation depuis toute la page ;
 - position apparente du Soleil et de la Lune, occultation et contacts locaux ;
 - carte MapLibre avec direction et trajectoire solaires ;
 - chronologie accélérée de l’éclipse 2027 ;
