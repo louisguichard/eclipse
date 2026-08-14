@@ -56,21 +56,21 @@ describe('useObserverLocation URL synchronization', () => {
     expect(shared.searchParams.get('lng')).toBe('2.295927')
   })
 
-  it('opens a base URL on the Arc de Triomphe observation point', async () => {
+  it('opens a base URL on the Trocadéro observation point', async () => {
     window.history.replaceState(null, '', '/')
 
     const { result } = renderHook(() => useObserverLocation())
 
     expect(result.current.location).toMatchObject({
-      lat: 48.873698,
-      lng: 2.295927,
-      label: 'Paris · Arc de Triomphe',
+      lat: 48.859463,
+      lng: 2.290335,
+      label: 'Paris · Trocadéro',
       source: 'default',
     })
     await waitFor(() => {
       const params = new URLSearchParams(window.location.search)
-      expect(params.get('lat')).toBe('48.873698')
-      expect(params.get('lng')).toBe('2.295927')
+      expect(params.get('lat')).toBe('48.859463')
+      expect(params.get('lng')).toBe('2.290335')
       expect(params.get('time')).toBe('61')
     })
   })
