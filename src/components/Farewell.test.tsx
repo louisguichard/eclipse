@@ -18,6 +18,11 @@ describe('Farewell', () => {
     expect(screen.getByText('C’est terminé.')).toBeInTheDocument()
     expect(screen.getByText('Rendez-vous le 2 août 2027 !')).toBeInTheDocument()
     expect(screen.getByRole('img')).toHaveAccessibleName(/12 août 2026/)
+    expect(screen.getByRole('link', { name: 'Speakea' })).toHaveAttribute(
+      'href',
+      'https://speakea.app/?utm_source=eclipse',
+    )
+    expect(screen.getByText(/Du même créateur/)).toBeInTheDocument()
   })
 
   it('credits the photographer', () => {
@@ -37,6 +42,9 @@ describe('Farewell', () => {
     expect(entered).toBe(2)
 
     fireEvent.click(screen.getByRole('button', { name: 'Préparer 2027' }))
+    expect(entered).toBe(3)
+
+    fireEvent.click(screen.getByRole('link', { name: 'Speakea' }))
     expect(entered).toBe(3)
 
     fireEvent.keyDown(window, { key: 'Escape' })

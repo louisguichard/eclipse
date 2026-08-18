@@ -25,6 +25,10 @@ Le site calcule l’événement 2027 pour n’importe quelles coordonnées avec 
 
 Les anciens calques jaunes LiDAR calculés pour 2026 et la météo ont été retirés de l’interface : ils ne décrivaient pas l’événement 2027. Les scripts de calcul restent dans le dépôt à titre d’archive technique, mais les anciennes tuiles ne sont plus publiées par le site.
 
+## Auteur
+
+Ce projet a été créé par [Louis Guichard](https://louisguichard.fr/), également créateur de [Speakea](https://speakea.app/), une application pour pratiquer l’anglais à l’oral avec l’intelligence artificielle.
+
 ## Installation locale
 
 Prérequis : Node.js 22.x et npm 10 ou plus récent.

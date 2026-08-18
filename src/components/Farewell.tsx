@@ -1,6 +1,8 @@
 import { useCallback, useState, type ReactNode } from 'react'
 import farewellPhoto from '../assets/farewell-2026.jpg'
 
+const SPEAKEA_URL = 'https://speakea.app/?utm_source=eclipse'
+
 /**
  * The eclipse has happened. What the site computed is now a memory, so the
  * photograph comes first and the 2027 instrument waits behind it: a single
@@ -45,9 +47,16 @@ export function Farewell({ onEnter }: { onEnter: () => void }) {
 
       {/* The label stays keyboard-accessible, while pointer users can enter by
           clicking anywhere on the photograph, the message or the background. */}
-      <button type="button" className="farewell__enter">
-        Préparer 2027
-      </button>
+      <div className="farewell__actions" onClick={(event) => event.stopPropagation()}>
+        <button type="button" className="farewell__enter" onClick={onEnter}>
+          Préparer 2027
+        </button>
+        <p className="farewell__creator">
+          Du même créateur :{' '}
+          <a href={SPEAKEA_URL} target="_blank" rel="noreferrer">Speakea</a>, pour pratiquer
+          l’anglais à l’oral avec l’IA.
+        </p>
+      </div>
     </div>
   )
 }

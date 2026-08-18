@@ -4816,6 +4816,13 @@ p.legal-modal__credit {
   letter-spacing: 0.005em;
 }
 
+.farewell__actions {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+}
+
 .farewell__enter {
   padding: 0 16px 8px;
   border: 0;
@@ -4852,6 +4859,30 @@ p.legal-modal__credit {
   outline: 1px solid var(--stroke-strong);
   outline-offset: 6px;
   border-radius: var(--r-sm);
+}
+
+.farewell__creator {
+  max-width: 560px;
+  margin: 0;
+  color: var(--ink-faint);
+  font-size: 10px;
+  line-height: 1.55;
+  text-align: center;
+  text-wrap: balance;
+}
+
+.farewell__creator a {
+  color: var(--ink-mute);
+  text-decoration-color: rgb(255 255 255 / 0.22);
+  text-decoration-line: underline;
+  text-underline-offset: 3px;
+  transition: color 180ms var(--ease), text-decoration-color 180ms var(--ease);
+}
+
+.farewell__creator a:hover,
+.farewell__creator a:focus-visible {
+  color: var(--ink);
+  text-decoration-color: currentcolor;
 }
 
 @keyframes farewell-in {
